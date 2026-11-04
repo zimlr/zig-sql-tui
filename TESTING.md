@@ -29,3 +29,12 @@ The prose checker covers project-owned Markdown and skips code spans and fenced 
 ## Termux diagnostic
 
 The [Termux compatibility workflow](.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. No package is published and no project license is declared by the recipe. An ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary. Detected incompatibilities fail the workflow. Execution inside the Termux app remains necessary.
+
+Run the diagnostic locally with an executable matching the Linux host architecture:
+
+```sh
+bash tools/fetch_termux_packages.sh
+python3 tools/check_termux_candidate.py .zig-cache/termux-packages zig-out/bin/zig-sql-tui
+```
+
+The diagnostic uses a single-syscall seccomp filter. Android policies and Termux app execution are not reproduced.

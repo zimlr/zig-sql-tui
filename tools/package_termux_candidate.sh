@@ -2,6 +2,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
+mkdir -p "${TMPDIR:-$root/.zig-cache/tmp}"
 (cd .zig-cache/candidate && sha256sum -c SHA256SUMS)
 bash tools/fetch_termux_packages.sh
 package_dir=.zig-cache/termux-packages/packages/zig-sql-tui
@@ -13,7 +14,7 @@ shopt -s nullglob
 package=(.zig-cache/packages/zig-sql-tui_*_aarch64.deb)
 test "${#package[@]}" = 1
 dpkg-deb -x "${package[0]}" .zig-cache/unpacked
-packaged=.zig-cache/unpacked/bin/zig-sql-tui
+packaged=.zig-cache/unpacked/data/data/com.termux/files/usr/bin/zig-sql-tui
 cmp .zig-cache/candidate/zig-sql-tui "$packaged"
 mkdir -p .zig-cache/packaged-binary
 cp "$packaged" .zig-cache/packaged-binary/zig-sql-tui

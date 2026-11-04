@@ -70,6 +70,7 @@ jobs:
     env:
       NDK: /home/builder/lib/android-ndk-r30
       TERMUX_TOPDIR: ${{ github.workspace }}/.zig-cache/termux-build
+      TMPDIR: ${{ github.workspace }}/.zig-cache/tmp
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
