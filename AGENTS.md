@@ -57,6 +57,13 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 - Handle `SIGWINCH` and recompute layout at runtime. Support terminals down to 40 columns by 12 rows.
 - Below 40 columns or 12 rows, show a resize prompt without corrupting the display.
 
+# Release policy
+
+- Create a release only after an explicit user request for that specific release. Do not infer approval from a merge, schedule, or prior request.
+- Follow [RELEASING.md](RELEASING.md), review compatibility impact, and use the manual Release workflow on the default branch.
+- Use SemVer 2.0.0 with a `v` tag prefix. The first published release MUST be `v1.0.0`.
+- Do not publish when tracked contents have not changed since the highest-precedence published release. Never replace a published version.
+
 # Code style and engineering standards
 
 - Use explicit ownership, allocator lifetimes, error propagation, and bounds checks. Release resources on every exit path.
