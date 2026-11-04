@@ -10,7 +10,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Consume complete and fragmented terminal escape sequences without interpreting trailing bytes as commands. Preserve a key following Esc. Terminal tests cover input and confirmation modes.
 - [x] Clear stale error state before a new operation. Retain errors from failed table page loads and searches. A terminal test covers paging after a query error.
 - [x] Build position-independent executables without an ELF interpreter or shared-library dependencies. The upstream Termux PIE check accepts both Linux candidates.
-- [ ] Preserve the filesystem allowlist when `openat2` is blocked. A Linux seccomp probe terminates the current binary with `SIGSYS`.
+- [ ] Preserve the filesystem allowlist when `openat2` is blocked. Linux seccomp probes terminate the x86_64 and aarch64 binaries with `SIGSYS`. The ARM probe failed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
 
 ## Coverage
 
@@ -20,8 +20,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
-- [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41912809999](https://github.com/zimlr/zig-sql-tui/actions/runs/41912809999). Syscall tracing remains limited to x86_64.
-- [x] Package the aarch64 Linux executable with the pinned Termux build system. The packaging job passed in [CI run 41916542386](https://github.com/zimlr/zig-sql-tui/actions/runs/41916542386).
+- [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41917315989](https://github.com/zimlr/zig-sql-tui/actions/runs/41917315989). Syscall tracing remains limited to x86_64.
+- [x] Package the aarch64 Linux executable with the pinned Termux build system. The packaging job passed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
 - [ ] Run the packaged binary in the Termux app on Android. Linux ARM CI does not reproduce Android app seccomp or execution policies.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 

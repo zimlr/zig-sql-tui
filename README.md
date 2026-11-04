@@ -34,7 +34,7 @@ ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cac
 
 The `aarch64-linux-musl` target produces a static aarch64 Linux executable. Both builds compile the vendored SQLite amalgamation into the executable.
 
-Native Termux compatibility remains unverified. Android app seccomp policies may block the required `openat2` and `faccessat2` syscalls. A Linux seccomp probe terminates the x86_64 executable when `openat2` is trapped.
+Native Termux compatibility remains unverified. Android app seccomp policies may block the required `openat2` and `faccessat2` syscalls. A Linux seccomp probe terminates both target executables when `openat2` is trapped.
 
 ## Run
 

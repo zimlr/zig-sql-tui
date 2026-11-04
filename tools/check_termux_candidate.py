@@ -61,6 +61,8 @@ def main():
         shutil.copy2(source / "scripts/bin/check-pie.sh", scripts / "check-pie.sh")
         (scripts / "properties.sh").write_text(f"TERMUX_PREFIX={shlex.quote(str(prefix))}\n")
         shutil.copy2(binary, prefix / "bin/zig-sql-tui")
+        # The upstream script suppresses readelf errors, so validate the input first.
+        subprocess.run(["readelf", "-h", binary], capture_output=True, check=True)
         check = subprocess.run(["bash", scripts / "check-pie.sh"], text=True,
                                capture_output=True, check=True)
         failures = []
