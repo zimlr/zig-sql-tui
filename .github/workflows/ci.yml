@@ -74,7 +74,7 @@ jobs:
           path: .zig-cache/debug-transfer/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
       - name: Check static linkage
         run: |
           for binary in zig-out/bin/zig-sql-tui .zig-cache/arm-output/bin/zig-sql-tui .zig-cache/debug-x86/bin/zig-sql-tui .zig-cache/debug-arm/bin/zig-sql-tui; do

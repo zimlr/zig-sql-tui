@@ -156,7 +156,7 @@ Recovery requires a terminal and explicit confirmation. Super-journal recovery i
 
 ## Android debug self-test
 
-The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 Termux. Download the artifact from the workflow run, extract the ZIP file, and verify the included checksum. Extract the resulting archive and run the diagnostics build:
+The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 Termux. Artifacts expire after one day. Download the artifact from the workflow run, extract the ZIP file, and verify the included checksum. Extract the resulting archive and run the diagnostics build:
 
 ```sh
 sha256sum -c SHA256SUMS
