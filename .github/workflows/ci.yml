@@ -46,6 +46,8 @@ jobs:
           test "$(./tools/zig/zig version)" = 0.17.1
       - name: Verify vendored SQLite
         run: sha256sum -c vendor/sqlite/SHA256SUMS
+      - name: Check project prose
+        run: python3 tools/check_prose.py
       - name: Check formatting
         run: ./tools/zig/zig fmt --check build.zig src/main.zig
       - name: Build x86_64
@@ -58,5 +60,43 @@ jobs:
         run: ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/arm-output
       - name: Check static linkage
         run: |
-          readelf -d zig-out/bin/zig-sql-tui | grep 'There is no dynamic section'
-          readelf -d .zig-cache/arm-output/bin/zig-sql-tui | grep 'There is no dynamic section'
+          for binary in zig-out/bin/zig-sql-tui .zig-cache/arm-output/bin/zig-sql-tui; do
+            header=$(readelf -h "$binary")
+            programs=$(readelf -l "$binary")
+            dynamic=$(readelf -d "$binary")
+            grep -E 'Type:[[:space:]]+DYN' <<< "$header"
+            if grep -q INTERP <<< "$programs"; then exit 1; fi
+            if grep -q '(NEEDED)' <<< "$dynamic"; then exit 1; fi
+          done
+      - name: Prepare aarch64 test artifact
+        run: |
+          mkdir -p .zig-cache/arm-transfer
+          cp .zig-cache/arm-output/bin/zig-sql-tui .zig-cache/arm-transfer/
+          cd .zig-cache/arm-transfer
+          sha256sum zig-sql-tui > SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aarch64-linux-musl-test
+          path: .zig-cache/arm-transfer/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  test-aarch64-linux:
+    needs: build-and-test
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: aarch64-linux-musl-test
+          path: zig-out/bin
+      - name: Test aarch64 Linux binary
+        run: |
+          test "$(uname -m)" = aarch64
+          (cd zig-out/bin && sha256sum -c SHA256SUMS)
+          chmod +x zig-out/bin/zig-sql-tui
+          mkdir -p .zig-cache/tmp
+          python3 -m unittest discover -s tests -p 'test_*.py' -v

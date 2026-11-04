@@ -86,8 +86,11 @@ static int restricted_open(sqlite3_vfs *v, sqlite3_filename path, sqlite3_file *
     return unix_vfs->xOpen(unix_vfs, path, file, flags, out);
 }
 static int restricted_delete(sqlite3_vfs *v, const char *path, int sync) {
-    (void)v; (void)sync;
-    if (safe_unlink(path) == 0) return SQLITE_OK;
+    (void)v;
+    if (safe_unlink(path) == 0) {
+        if (sync && fsync(directory_fd) != 0) return SQLITE_IOERR_DIR_FSYNC;
+        return SQLITE_OK;
+    }
     return errno == ENOENT ? SQLITE_IOERR_DELETE_NOENT : SQLITE_IOERR_DELETE;
 }
 static int restricted_access(sqlite3_vfs *v, const char *path, int flags, int *result) {

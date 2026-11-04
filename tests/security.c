@@ -1,16 +1,30 @@
+#define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include "sqlite3.h"
+#include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 int app_open_live(const char *, int, sqlite3 **, char *, size_t);
+int app_reopen_live(sqlite3 *, int, sqlite3 **, char *, size_t);
 void app_live_close(void);
 int app_prepare_query(sqlite3 *, const char *, sqlite3_stmt **);
 void app_query_begin(sqlite3 *);
 void app_query_end(sqlite3 *);
+
+static int sync_count, sync_directory, fail_sync;
+int app_test_fsync(int fd) {
+    struct stat info;
+    sync_count++;
+    sync_directory = fstat(fd, &info) == 0 && S_ISDIR(info.st_mode);
+    if (fail_sync) { errno = EIO; return -1; }
+    return (int)syscall(SYS_fsync, fd);
+}
 
 static int run(sqlite3 *db, const char *sql) {
     return sqlite3_exec(db, sql, NULL, NULL, NULL);
@@ -79,6 +93,31 @@ int main(void) {
     app_query_end(db);
     if (step != SQLITE_INTERRUPT) {
         fprintf(stderr, "Query budget did not interrupt execution\n");
+        goto done;
+    }
+    sqlite3 *writable = NULL;
+    if (!app_reopen_live(db, 1, &writable, error, sizeof(error))) goto done;
+    db = writable;
+    char journal[sizeof(path) + 8];
+    snprintf(journal, sizeof(journal), "%s-journal", path);
+    fd = open(journal, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (fd < 0) goto done;
+    close(fd); fd = -1;
+    sqlite3_vfs *vfs = sqlite3_vfs_find("restricted-wal");
+    int previous_sync_count = sync_count;
+    if (!vfs || vfs->xDelete(vfs, "/db-journal", 1) != SQLITE_OK ||
+        access(journal, F_OK) == 0 || sync_count != previous_sync_count + 1 || !sync_directory) {
+        unlink(journal);
+        goto done;
+    }
+    fd = open(journal, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (fd < 0) goto done;
+    close(fd); fd = -1;
+    fail_sync = 1;
+    int delete_rc = vfs->xDelete(vfs, "/db-journal", 1);
+    fail_sync = 0;
+    if (delete_rc != SQLITE_IOERR_DIR_FSYNC || access(journal, F_OK) == 0) {
+        unlink(journal);
         goto done;
     }
     ok = 1;
