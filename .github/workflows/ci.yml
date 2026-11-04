@@ -46,6 +46,8 @@ jobs:
           test "$(./tools/zig/zig version)" = 0.17.1
       - name: Verify vendored SQLite
         run: sha256sum -c vendor/sqlite/SHA256SUMS
+      - name: Check project prose
+        run: python3 tools/check_prose.py
       - name: Check formatting
         run: ./tools/zig/zig fmt --check build.zig src/main.zig
       - name: Build x86_64

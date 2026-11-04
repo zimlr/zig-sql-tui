@@ -4,7 +4,7 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 
 # Interaction model
 
-- Combine Vim-like power with an approachable terminal interface.
+- Support Vim-like commands and discoverable alternatives.
 - Support modal operation, keyboard-first control, composable commands, counts, search, command-line mode, fast navigation, and minimal chrome.
 - Show the current location, mode, access state, and relevant next keys on every screen.
 - Provide contextual key hints, a help screen, discoverable commands, and predictable focus.

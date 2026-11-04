@@ -37,9 +37,9 @@ For Termux, replace the target with `aarch64-linux-musl`. Both builds compile th
 ./zig-out/bin/zig-sql-tui path/to/database.sqlite
 ```
 
-Use Tab or Enter to switch panels. Use arrow keys or `hjkl` to move through rows and columns. Use `[` and `]` to page tables or rows, and `<` and `>` to page columns. Press `?` for help and `q` to quit. Search with `/`, then use `n` or `N` to move between matches.
+Switch panels with Tab or Enter, and move through rows and columns with arrow keys or `hjkl`. Page tables or rows with `[` and `]`, and page columns with `<` and `>`. Press `?` for help and `q` to quit. Search with `/`, then press `n` or `N` to move between matches.
 
-Press `i` to enter SQL. In write mode, select a cell and press `e` to edit it. Use `:null` to set the selected cell to NULL. Editing a NULL cell replaces it with text. Edit BLOB values as hexadecimal bytes. Press Enter to submit, Esc to cancel, or Ctrl-U to clear the input. Use `:reload` to refresh database contents.
+Press `i` to enter SQL. In write mode, select a cell and press `e` to edit it. Use `:null` to set the selected cell to NULL. Editing a NULL cell replaces it with text. Edit BLOB values as hexadecimal bytes. Input is append-only and ignores arrow keys. Press Enter to submit, Esc to cancel, or Ctrl-U to clear the input. Use `:reload` to refresh database contents.
 
 Use `--check path/to/database.sqlite` to check whether the reader can open a database. This is not an integrity check. If a hot journal prevents access, run `--recover path/to/database.sqlite` and confirm recovery.
 
@@ -48,8 +48,9 @@ Use `--check path/to/database.sqlite` to check whether the reader can open a dat
 Run the security boundary and integration tests with the pinned compiler:
 
 ```sh
+python3 tools/check_prose.py
 ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" TMPDIR="$PWD/.zig-cache/tmp" ./tools/zig/zig build test -Doptimize=ReleaseSmall
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Build the x86_64 executable before running the Python tests. Tests create fixtures under `.zig-cache/tmp`.
+Build the x86_64 executable before running the Python tests. Tests create fixtures under `.zig-cache/tmp`. The [test checklist](TESTING.md) records coverage and remaining validation limits.

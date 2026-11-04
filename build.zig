@@ -39,6 +39,7 @@ pub fn build(b: *std.Build) void {
     test_module.addCSourceFiles(.{
         .files = &.{ "vendor/sqlite/sqlite3.c", "src/sandbox.c", "src/live.c", "tests/security.c" },
         .flags = &.{
+            "-Dfsync=app_test_fsync",
             "-DSQLITE_TEMP_STORE=3",
             "-DSQLITE_OMIT_RANDOMNESS=1",
             "-DSQLITE_OMIT_LOAD_EXTENSION=1",

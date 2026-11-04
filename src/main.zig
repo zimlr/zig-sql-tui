@@ -131,6 +131,7 @@ const App = struct {
     }
 
     fn loadTables(self: *App) void {
+        self.failed = false;
         app_query_begin(self.db);
         defer app_query_end(self.db);
         var stmt: ?*Stmt = null;
@@ -167,10 +168,11 @@ const App = struct {
             self.tables[self.table_count].set(ptr[0..n]);
             self.table_count += 1;
         }
-        if (self.table_count > 0) self.loadRows();
+        if (!self.failed and self.table_count > 0) self.loadRows();
     }
 
     fn loadRows(self: *App) void {
+        self.failed = false;
         self.query_results = false;
         self.row_count = 0;
         self.row_index = 0;
@@ -201,6 +203,7 @@ const App = struct {
     }
 
     fn runQuery(self: *App) void {
+        self.failed = false;
         self.query.set(self.input.slice());
         var stmt: ?*Stmt = null;
         app_query_begin(self.db);
@@ -358,6 +361,7 @@ const App = struct {
 
     // Query pages are re-executed. No write statement is permitted here.
     fn loadQueryPage(self: *App) void {
+        self.failed = false;
         var stmt: ?*Stmt = null;
         var is_write: c_int = 0;
         app_query_begin(self.db);
@@ -402,7 +406,7 @@ const App = struct {
             self.total_columns = 0;
             self.query_results = false;
             self.loadTables();
-            self.message.set("Table page changed");
+            if (!self.failed) self.message.set("Table page changed");
             return;
         }
         if (forward) {
@@ -466,6 +470,7 @@ const App = struct {
     }
 
     fn find(self: *App, backwards: bool) void {
+        self.failed = false;
         if (self.focus == .details) {
             self.message.set("Select the tables or rows panel to search");
             return;
@@ -500,7 +505,7 @@ const App = struct {
                     self.column_index = matching_column;
                     self.detail_offset = 0;
                 }
-                self.message.set("Match found");
+                if (!self.failed) self.message.set("Match found");
                 return;
             }
         }
@@ -537,6 +542,12 @@ const App = struct {
     }
 
     fn confirm(self: *App, accepted: bool) void {
+        if (accepted) {
+            var cols: u16 = 0;
+            var rows: u16 = 0;
+            app_terminal_size(&cols, &rows);
+            if (cols < 40 or rows < 12) return;
+        }
         const pending = self.pending;
         self.pending = .none;
         if (!accepted) {
@@ -824,14 +835,10 @@ fn output(fd: c_int, bytes: []const u8) void {
     }
 }
 // Render untrusted text as ASCII. Escape non-ASCII code points and invalid bytes.
-fn printSafeAt(row: usize, col: usize, width: usize, text: []const u8) usize {
-    if (width == 0) return 0;
-    var escape: [40]u8 = undefined;
-    output(1, std.fmt.bufPrint(&escape, "\x1b[{d};{d}H", .{ row, col }) catch return 0);
-    var rendered: [512]u8 = undefined;
+fn renderSafe(text: []const u8, rendered: []u8) struct { used: usize, consumed: usize } {
     var used: usize = 0;
     var consumed: usize = 0;
-    const limit = @min(width, rendered.len);
+    const limit = rendered.len;
     while (consumed < text.len and used < limit) {
         const ch = text[consumed];
         if (ch >= 32 and ch < 127) {
@@ -862,8 +869,27 @@ fn printSafeAt(row: usize, col: usize, width: usize, text: []const u8) usize {
         used += token.len;
         consumed += if (codepoint != null) seq_len else 1;
     }
-    output(1, rendered[0..used]);
-    return consumed;
+    return .{ .used = used, .consumed = consumed };
+}
+
+fn outputSafe(fd: c_int, text: []const u8) void {
+    var rendered: [512]u8 = undefined;
+    var offset: usize = 0;
+    while (offset < text.len) {
+        const result = renderSafe(text[offset..], &rendered);
+        output(fd, rendered[0..result.used]);
+        offset += result.consumed;
+    }
+}
+
+fn printSafeAt(row: usize, col: usize, width: usize, text: []const u8) usize {
+    if (width == 0) return 0;
+    var escape: [40]u8 = undefined;
+    output(1, std.fmt.bufPrint(&escape, "\x1b[{d};{d}H", .{ row, col }) catch return 0);
+    var rendered: [512]u8 = undefined;
+    const result = renderSafe(text, rendered[0..@min(width, rendered.len)]);
+    output(1, rendered[0..result.used]);
+    return result.consumed;
 }
 
 fn printAt(row: usize, col: usize, width: usize, text: []const u8) void {
@@ -990,7 +1016,7 @@ fn draw(a: *App) void {
         printAt(a.height - 2, 1, a.cols, a.message.slice());
         printAt(a.height - 1, 1, a.cols, if (a.writable) "Tab: panel []:page e:edit ?:help q:quit" else "Tab: panel []:page i:SQL ?:help q:quit");
     } else {
-        const prompt: []const u8 = if (a.input.truncated) "Input limit reached. Shorten or clear input" else if (!std.unicode.utf8ValidateSlice(a.input.slice())) "Invalid UTF-8. Correct or clear input" else "Enter: submit  Esc: cancel  Ctrl-U: clear";
+        const prompt: []const u8 = if (a.input.truncated) "Input limit reached. Shorten or clear input" else if (!std.unicode.utf8ValidateSlice(a.input.slice())) "Invalid UTF-8. Correct or clear input" else "Append-only Enter:go Esc:cancel ^U:clear";
         printAt(a.height - 2, 1, a.cols, prompt);
         const label: []const u8 = switch (a.mode) {
             .command => ":",
@@ -1025,8 +1051,10 @@ fn confirmRecovery() bool {
             const keycode = app_terminal_read();
             if (keycode == -1) break;
             if (keycode == -3) continue;
-            if (keycode == -2 or keycode == 'n' or keycode == 'q' or keycode == 27) return false;
+            if (keycode == -2 or keycode == 'n' or keycode == 'N' or keycode == 'q' or keycode == 27) return false;
+            app_terminal_size(&cols, &rows);
             if (cols >= 40 and rows >= 12 and (keycode == 'y' or keycode == 'Y')) return true;
+            break;
         }
     }
 }
@@ -1059,7 +1087,7 @@ pub fn main(init: std.process.Init.Minimal) u8 {
         app_terminal_leave();
         if (!accepted) return 0;
         if (app_recover(path.ptr, &err, err.len) == 0) {
-            output(2, std.mem.sliceTo(&err, 0));
+            outputSafe(2, std.mem.sliceTo(&err, 0));
             output(2, "\n");
             return 1;
         }
@@ -1068,7 +1096,7 @@ pub fn main(init: std.process.Init.Minimal) u8 {
     }
     var db: ?*Db = null;
     if (app_open_live(path.ptr, 0, &db, &err, err.len) == 0 or db == null) {
-        output(2, std.mem.sliceTo(&err, 0));
+        outputSafe(2, std.mem.sliceTo(&err, 0));
         output(2, "\n");
         return 1;
     }
@@ -1081,7 +1109,7 @@ pub fn main(init: std.process.Init.Minimal) u8 {
     app.loadTables();
     if (app.failed) {
         output(2, "Cannot read database: ");
-        output(2, app.message.slice());
+        outputSafe(2, app.message.slice());
         output(2, "\nIf recovery is required, run --recover and confirm.\n");
         return 1;
     }
@@ -1104,17 +1132,57 @@ pub fn main(init: std.process.Init.Minimal) u8 {
         const keycode = app_terminal_read();
         if (keycode == -2) break;
         if (keycode == -3) continue;
-        if (keycode == 27 and app.mode == .normal and app.pending == .none) {
+        var cols: u16 = 0;
+        var rows: u16 = 0;
+        app_terminal_size(&cols, &rows);
+        if (cols < 40 or rows < 12) {
+            // Only cancellation and quitting are safe when confirmations are hidden.
+            if (app.pending != .none and (keycode == 'n' or keycode == 'N' or keycode == 27)) {
+                app.confirm(false);
+            } else if (app.pending == .none and app.mode != .normal and keycode == 27) {
+                app.mode = .normal;
+            } else if (app.pending == .none and app.mode == .normal and keycode == 'q') {
+                app.running = false;
+            }
+        } else if (keycode == 27) {
             const next = app_terminal_read();
-            if (next == '[') {
-                const arrow = app_terminal_read();
-                app.key(switch (arrow) {
-                    'A' => 'k',
-                    'B' => 'j',
-                    'C' => 'l',
-                    'D' => 'h',
-                    else => 0,
-                });
+            if (next == '[' or next == 'O') {
+                // Retain incomplete sequences across input timeouts and resize events.
+                // Their trailing bytes must not become independent commands.
+                var final: c_int = -3;
+                while (true) {
+                    const c = app_terminal_read();
+                    if (c == -3) continue;
+                    if (c == -2) {
+                        app.running = false;
+                        break;
+                    }
+                    if (c == -1) {
+                        draw(&app);
+                        continue;
+                    }
+                    if (c == 27) {
+                        app.key(27);
+                        break;
+                    }
+                    if (c >= 0x40 and c <= 0x7e) {
+                        final = c;
+                        break;
+                    }
+                }
+                app_terminal_size(&cols, &rows);
+                if (cols >= 40 and rows >= 12 and app.mode == .normal and app.pending == .none) {
+                    app.key(switch (final) {
+                        'A' => 'k',
+                        'B' => 'j',
+                        'C' => 'l',
+                        'D' => 'h',
+                        else => 0,
+                    });
+                }
+            } else {
+                app.key(27);
+                if (next >= 0 and app.running) app.key(next);
             }
         } else app.key(keycode);
         if (app.running) {

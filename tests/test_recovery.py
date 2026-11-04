@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import pty
 import select
+import signal
 import sqlite3
 import struct
 import subprocess
@@ -106,6 +107,27 @@ os._exit(0)
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM data WHERE substr(v,1,1)='A'").fetchone()[0], 200)
         self.assertEqual(subprocess.run([EXE, "--check", self.path], capture_output=True).returncode, 0)
+
+    def test_recovery_confirmation_is_blocked_below_minimum_size(self):
+        journal = self.make_hot_journal()
+        before = (digest(self.path), digest(journal))
+        terminal = Terminal("--recover", self.path)
+        try:
+            terminal.wait(b"Recovery modifies")
+            start = len(terminal.data)
+            fcntl.ioctl(terminal.master, termios.TIOCSWINSZ, struct.pack("HHHH", 10, 35, 0, 0))
+            os.kill(terminal.proc.pid, signal.SIGWINCH)
+            terminal.wait(b"Resize terminal", start)
+            terminal.send(b"y", b"Resize terminal")
+            self.assertEqual((digest(self.path), digest(journal)), before)
+            start = len(terminal.data)
+            fcntl.ioctl(terminal.master, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
+            os.kill(terminal.proc.pid, signal.SIGWINCH)
+            terminal.wait(b"Recovery modifies", start)
+            terminal.send(b"y", b"Recovery check completed")
+            self.assertEqual(terminal.proc.wait(timeout=5), 0)
+        finally:
+            terminal.close()
 
     def test_superjournal_recovery_fails_without_accessing_other_files(self):
         journal = self.make_hot_journal()
