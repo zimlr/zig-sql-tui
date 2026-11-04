@@ -1,6 +1,6 @@
 # Project overview
 
-This project is a Zig TUI for browsing and editing SQLite databases. Primary targets are Linux aarch64 on Termux and Linux x86_64 on desktop. Treat `master` as the main branch.
+This project is a Zig TUI for browsing and editing SQLite databases. Primary targets are Linux aarch64 on Termux and Linux x86_64 on desktop. The intended main branch name is `master`, but the current GitHub default branch is `main`.
 
 # Interaction model
 
@@ -13,7 +13,7 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 
 # Toolchain and build commands
 
-- Pin Zig to version 0.14.1. Keep the toolchain, build caches, temporary files, and build outputs inside the workspace.
+- Pin Zig to version 0.17.1. Keep the toolchain, build caches, temporary files, and build outputs inside the workspace.
 - The repository currently has no build implementation. Implement `-Dstrip` as a boolean build option before using these commands.
 - Create the local cache directories with `mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp`.
 - Build for Termux aarch64 with `ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" TMPDIR="$PWD/.zig-cache/tmp" ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true`.
@@ -59,10 +59,7 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 - Use explicit ownership, allocator lifetimes, error propagation, and bounds checks. Release resources on every exit path.
 - Validate untrusted database content, SQL results, terminal input, and dimensions. Handle malformed data and allocation failures without undefined behavior.
 - Keep changes focused and test behavior at its boundaries. Document non-obvious invariants and security decisions.
-- Style is a hard gate equal to a passing build. Use plain, declarative, impersonal prose and imperative rules.
-- Do not use prose semicolons, em dashes, decorative en dashes, quips, rhetorical questions, dramatic fragments, assistant filler, marketing language, or narrative pacing.
-- Before completion, audit every line for these violations. On a violation, stop, quote and rewrite the offending text, then re-check the whole document.
-- If violations recur, discard the draft and start over. These style rules admit no exceptions.
+- Read and follow [WRITING_STYLE.md](WRITING_STYLE.md) for prose style and enforcement.
 
 # Definition of done
 
