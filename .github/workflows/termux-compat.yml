@@ -7,6 +7,8 @@ on:
       - 'build.zig'
       - 'src/**'
       - 'tests/termux/**'
+      - 'tests/test_termux*.py'
+      - 'tests/test_recovery.py'
       - 'tools/check_termux_candidate.py'
       - 'tools/fetch_termux_packages.sh'
       - 'tools/package_termux_candidate.sh'
@@ -17,6 +19,8 @@ on:
       - 'build.zig'
       - 'src/**'
       - 'tests/termux/**'
+      - 'tests/test_termux*.py'
+      - 'tests/test_recovery.py'
       - 'tools/check_termux_candidate.py'
       - 'tools/fetch_termux_packages.sh'
       - 'tools/package_termux_candidate.sh'
@@ -119,6 +123,12 @@ jobs:
           set +e
           python3 tools/check_termux_candidate.py .zig-cache/termux-packages .zig-cache/candidate/zig-sql-tui > .zig-cache/probe.log 2>&1
           result=$?
+          if [ "$result" -eq 0 ]; then
+            mkdir -p zig-out/bin .zig-cache/tmp
+            cp .zig-cache/candidate/zig-sql-tui zig-out/bin/zig-sql-tui
+            python3 -m unittest discover -s tests -p 'test_termux*.py' -v >> .zig-cache/probe.log 2>&1
+            result=$?
+          fi
           cat .zig-cache/probe.log
           if [ "$result" -ne 0 ]; then
             while IFS= read -r line; do

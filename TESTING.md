@@ -10,7 +10,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Consume complete and fragmented terminal escape sequences without interpreting trailing bytes as commands. Preserve a key following Esc. Terminal tests cover input and confirmation modes.
 - [x] Clear stale error state before a new operation. Retain errors from failed table page loads and searches. A terminal test covers paging after a query error.
 - [x] Build position-independent executables without an ELF interpreter or shared-library dependencies. The upstream Termux PIE check accepts both Linux candidates.
-- [ ] Preserve the filesystem allowlist when `openat2` is blocked. Linux seccomp probes terminate the x86_64 and aarch64 binaries with `SIGSYS`. The ARM probe failed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
+- [x] Replace `openat2` with an fd-anchored, no-symlink directory walk and single-component sidecar opens. Linux tests exercise the allowlist with restricted syscalls trapped.
+- [ ] Verify the change in the Termux app on Android. A user reported that `v1.0.0` terminates with `Bad system call` on Android 13. The earlier ARM probe failed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
 
 ## Coverage
 
@@ -40,4 +41,4 @@ bash tools/fetch_termux_packages.sh
 python3 tools/check_termux_candidate.py .zig-cache/termux-packages zig-out/bin/zig-sql-tui
 ```
 
-The diagnostic uses a single-syscall seccomp filter. Android policies and Termux app execution are not reproduced.
+The diagnostic traps `openat2`, `faccessat2`, and `fchmodat2` with a Linux seccomp filter. Android policies and Termux app execution are not reproduced.

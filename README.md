@@ -20,9 +20,9 @@ The TUI is implemented in this repository. `src/main.zig` handles rendering and 
 
 ## Requirements
 
-The desktop build targets x86_64 Linux. An aarch64 Linux build is also available, but native Termux compatibility remains unverified. Android app seccomp policies may block the required `openat2` and `faccessat2` syscalls. A Linux seccomp probe terminates both target executables when `openat2` is trapped.
+The desktop build targets x86_64 Linux. An aarch64 Linux build is also available, but native Termux compatibility remains unverified. Version `v1.0.0` terminates with `Bad system call` on Android 13 Termux. Later builds avoid syscalls identified by the Linux seccomp probe, but require testing in the Termux app.
 
-The interface requires a terminal of at least 40 columns by 12 rows. Database paths must not contain symbolic links, and the Linux kernel must support `openat2`.
+The interface requires a terminal of at least 40 columns by 12 rows. Database paths must not contain symbolic links.
 
 ## Build
 

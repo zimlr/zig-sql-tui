@@ -29,7 +29,7 @@ class Registers(ctypes.Structure):
 LIBC = ctypes.CDLL(None, use_errno=True)
 LIBC.ptrace.restype = ctypes.c_long
 NETWORK = {41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 288, 299, 307}
-FORBIDDEN = {56, 57, 58, 303, 304, 322, 425, 426, 427, 435}
+FORBIDDEN = {56, 57, 58, 303, 304, 322, 425, 426, 427, 435, 437, 439, 452}
 # Values are the registers containing pathname arguments.
 PATH_CALLS = {2: ("rdi",), 4: ("rdi",), 6: ("rdi",), 21: ("rdi",), 59: ("rdi",),
               82: ("rdi", "rsi"), 83: ("rdi",), 84: ("rdi",), 85: ("rdi",),
@@ -166,6 +166,19 @@ def trace_check(path, steps=None):
 
 @unittest.skipUnless(platform.system() == "Linux" and platform.machine() == "x86_64", "x86_64 Linux ptrace is required")
 class SyscallAuditTests(unittest.TestCase):
+    def assert_confined_paths(self, path, paths):
+        # The directory walk must be the initial, ordered sequence of opens.
+        # Afterward, only the exact database and sidecar basenames are allowed.
+        expected = [os.fsencode(EXE), b"/"] + [os.fsencode(part) for part in path.parent.parts[1:]] + [b"."]
+        self.assertEqual([name for _, name in paths[:len(expected)]], expected)
+        self.assertEqual(paths[0][0], 59)
+        self.assertIn(paths[1][0], (2, 257))
+        self.assertTrue(all(number == 257 for number, _ in paths[2:len(expected)]))
+        permitted = {os.fsencode(path.name), os.fsencode(path.name + "-wal"),
+                     os.fsencode(path.name + "-shm"), os.fsencode(path.name + "-journal"), b""}
+        self.assertEqual([item for item in paths[len(expected):] if item[1] not in permitted], [])
+        self.assertEqual([item for item in paths if item[0] == 59], [(59, os.fsencode(EXE))])
+
     def test_database_check_uses_no_network_or_unrelated_paths(self):
         with tempfile.TemporaryDirectory(dir=TMP) as directory:
             path = Path(directory) / "sample.sqlite"
@@ -179,12 +192,7 @@ class SyscallAuditTests(unittest.TestCase):
                     code, output, paths, network = trace_check(path)
                     self.assertEqual(code, 0, output)
                     self.assertFalse(network, network)
-                    permitted = {os.fsencode(EXE), os.fsencode(path.parent), os.fsencode(path.name),
-                                 os.fsencode(path.name + "-wal"), os.fsencode(path.name + "-shm"),
-                                 os.fsencode(path.name + "-journal"), b""}
-                    self.assertTrue(paths)
-                    self.assertEqual([item for item in paths if item[1] not in permitted], [])
-                    self.assertEqual([item for item in paths if item[0] == 59], [(59, os.fsencode(EXE))])
+                    self.assert_confined_paths(path, paths)
                 finally:
                     db.close()
 
@@ -208,11 +216,7 @@ class SyscallAuditTests(unittest.TestCase):
                     code, output, paths, network = trace_check(path, steps)
                     self.assertEqual(code, 0, output[-1000:])
                     self.assertFalse(network, network)
-                    permitted = {os.fsencode(EXE), os.fsencode(path.parent), os.fsencode(path.name),
-                                 os.fsencode(path.name + "-wal"), os.fsencode(path.name + "-shm"),
-                                 os.fsencode(path.name + "-journal"), b""}
-                    self.assertEqual([item for item in paths if item[1] not in permitted], [])
-                    self.assertEqual([item for item in paths if item[0] == 59], [(59, os.fsencode(EXE))])
+                    self.assert_confined_paths(path, paths)
                     self.assertGreater(db.execute("SELECT count(*) FROM data WHERE v='write'").fetchone()[0], 0)
                 finally:
                     db.close()

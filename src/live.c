@@ -2,12 +2,10 @@
 #include "sqlite3.h"
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/openat2.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/random.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 
 /* The native SQLite VFS never receives a real path. Its path-based system
@@ -36,10 +34,9 @@ static int safe_open(const char *path, int flags, int mode) {
     if (!live_writable && strcmp(path, "/db-shm") && (flags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC))) {
         errno = EACCES; return -1;
     }
-    struct open_how how = { .flags = (unsigned long long)(flags | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK),
-                            .mode = ((flags & O_CREAT) || ((flags & O_TMPFILE) == O_TMPFILE)) ? (unsigned int)mode : 0,
-                            .resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS };
-    int fd = (int)syscall(SYS_openat2, directory_fd, name, &how, sizeof(how));
+    /* Allowed names are single components, so O_NOFOLLOW covers the only
+     * possible symlink without requiring openat2, which Android may trap. */
+    int fd = openat(directory_fd, name, flags | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, mode);
     if (fd >= 0) {
         struct stat st;
         if (fstat(fd, &st) || !S_ISREG(st.st_mode) || (strcmp(path, "/db") && st.st_nlink != 1)) {
@@ -56,10 +53,13 @@ static int safe_stat(const char *path, struct stat *st) {
     return 0;
 }
 static int safe_access(const char *path, int mode) {
-    const char *name = allowed_name(path);
     struct stat st;
-    if (!name || safe_stat(path, &st)) return -1;
-    return (int)syscall(SYS_faccessat2, directory_fd, name, mode, AT_SYMLINK_NOFOLLOW);
+    if (safe_stat(path, &st)) return -1;
+    /* SQLite uses F_OK for journal existence. Permission probes fail closed:
+     * opening and closing another fd could discard the process's POSIX locks. */
+    if (mode == F_OK) return 0;
+    errno = EACCES;
+    return -1;
 }
 static int safe_unlink(const char *path) {
     const char *name = allowed_name(path);
@@ -204,6 +204,37 @@ int app_reopen_live(sqlite3 *current, int writable, sqlite3 **out, char *error, 
     *out = next;
     return 1;
 }
+/* Resolve each directory component from a pinned fd. O_PATH avoids requiring
+ * read permission on intermediate directories, and O_NOFOLLOW rejects both
+ * ordinary and magic symlinks. The final fd remains usable for fsync. */
+static int open_directory(const char *path) {
+    int current = open(path[0] == '/' ? "/" : ".", O_PATH | O_DIRECTORY | O_CLOEXEC);
+    if (current < 0) return -1;
+    const char *p = path;
+    while (*p) {
+        while (*p == '/') p++;
+        if (!*p) break;
+        const char *end = p;
+        while (*end && *end != '/') end++;
+        size_t len = (size_t)(end - p);
+        char component[4096];
+        if (len >= sizeof(component)) { close(current); errno = ENAMETOOLONG; return -1; }
+        memcpy(component, p, len);
+        component[len] = 0;
+        int next = openat(current, component, O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        int saved = errno;
+        close(current);
+        if (next < 0) { errno = saved; return -1; }
+        current = next;
+        p = end;
+    }
+    int result = openat(current, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    int saved = errno;
+    close(current);
+    if (result < 0) errno = saved;
+    return result;
+}
+
 int app_open_live(const char *path, int writable, sqlite3 **out, char *error, size_t cap) {
     char dir[4096];
     const char *slash = strrchr(path, '/');
@@ -223,10 +254,8 @@ int app_open_live(const char *path, int writable, sqlite3 **out, char *error, si
     snprintf(wal_name, sizeof(wal_name), "%s-wal", base);
     snprintf(shm_name, sizeof(shm_name), "%s-shm", base);
     snprintf(journal_name, sizeof(journal_name), "%s-journal", base);
-    struct open_how how = { .flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC,
-                            .resolve = RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS };
-    directory_fd = (int)syscall(SYS_openat2, AT_FDCWD, dir, &how, sizeof(how));
-    if (directory_fd < 0) return fail(error, cap, "Cannot safely open database directory. Linux openat2 and a path without symlinks are required");
+    directory_fd = open_directory(dir);
+    if (directory_fd < 0) return fail(error, cap, "Cannot safely open database directory. A path without symlinks is required");
     live_writable = writable;
     int fd = safe_open("/db", O_RDONLY, 0);
     unsigned char hdr[100];
