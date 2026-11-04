@@ -33,9 +33,52 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 The prose checker covers project-owned Markdown and skips code spans and fenced code. It checks selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
 
+## Running tests
+
+Build the x86_64 executable before running the security boundary and integration tests:
+
+```sh
+python3 tools/check_prose.py
+ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" \
+ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" \
+TMPDIR="$PWD/.zig-cache/tmp" \
+./tools/zig/zig build test -Doptimize=ReleaseSmall
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+Fixtures remain under `.zig-cache/tmp`. Compiler setup and build commands are in [building](docs/building.md).
+
+A sample database can be created with Python:
+
+```sh
+mkdir -p .zig-cache/tmp
+python3 - <<'PY'
+import sqlite3
+
+with sqlite3.connect('.zig-cache/tmp/example.sqlite') as db:
+    db.execute('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)')
+    db.execute('INSERT OR IGNORE INTO items VALUES (1, ?)', ('example',))
+PY
+./zig-out/bin/zig-sql-tui .zig-cache/tmp/example.sqlite
+```
+
+## Android debug self-test
+
+The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 Termux. Artifacts expire after one day. Download the artifact from the workflow run, extract the ZIP file, and verify the included checksum. Extract the resulting archive and run the diagnostics build:
+
+```sh
+sha256sum -c SHA256SUMS
+tar -xzf zig-sql-tui-android-arm64-debug.tar.gz
+./zig-sql-tui-debug --debug-test --confirm
+```
+
+The flag and confirmation authorize writes only to disposable fixtures under `$HOME/.zig-sql-tui`. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts. Copy the complete output for diagnosis.
+
+The regular release build does not include this self-test.
+
 ## Termux diagnostic
 
-The [Termux compatibility workflow](.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. No package is published and no project license is declared by the recipe. An ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary. Detected incompatibilities fail the workflow. Separate testing inside the Termux app remains necessary.
+The [Termux compatibility workflow](https://github.com/zimlr/zig-sql-tui/blob/main/.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. No package is published and no project license is declared by the recipe. An ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary. Detected incompatibilities fail the workflow. Separate testing inside the Termux app remains necessary.
 
 Run the diagnostic locally with an executable matching the Linux host architecture:
 
