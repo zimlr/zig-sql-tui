@@ -1,68 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
 #include "sqlite3.h"
 #include <errno.h>
-#include <fcntl.h>
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/random.h>
-#include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
-
-/* The snapshot VFS has no filesystem implementation. Rollback-mode bytes are
- * read explicitly into a bounded, read-only in-memory database. */
-static int deny_open(sqlite3_vfs *v, sqlite3_filename n, sqlite3_file *f, int flags, int *out) {
-    (void)v; (void)n; (void)f; (void)flags; (void)out;
-    return SQLITE_CANTOPEN;
-}
-static int deny_delete(sqlite3_vfs *v, const char *n, int sync) {
-    (void)v; (void)n; (void)sync;
-    return SQLITE_IOERR_DELETE;
-}
-static int deny_access(sqlite3_vfs *v, const char *n, int flags, int *out) {
-    (void)v; (void)n; (void)flags; (void)out;
-    return SQLITE_IOERR_ACCESS;
-}
-static int deny_path(sqlite3_vfs *v, const char *n, int len, char *out) {
-    (void)v; (void)n; (void)len; (void)out;
-    return SQLITE_CANTOPEN;
-}
-static int randomness(sqlite3_vfs *v, int count, char *out) {
-    (void)v;
-    int done = 0;
-    while (done < count) {
-        ssize_t n = getrandom(out + done, (size_t)(count - done), 0);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) break;
-        done += (int)n;
-    }
-    return done;
-}
-static int sleep_us(sqlite3_vfs *v, int us) {
-    (void)v;
-    struct timespec t = { us / 1000000, (us % 1000000) * 1000 };
-    while (nanosleep(&t, &t) && errno == EINTR) {}
-    return us;
-}
-static int current_time(sqlite3_vfs *v, double *out) {
-    (void)v;
-    struct timespec t;
-    if (clock_gettime(CLOCK_REALTIME, &t)) return SQLITE_ERROR;
-    *out = 2440587.5 + (double)t.tv_sec / 86400.0 + (double)t.tv_nsec / 86400000000000.0;
-    return SQLITE_OK;
-}
-static sqlite3_vfs vfs = {
-    .iVersion = 1, .szOsFile = sizeof(sqlite3_file), .mxPathname = 4096,
-    .zName = "no-files", .xOpen = deny_open, .xDelete = deny_delete,
-    .xAccess = deny_access, .xFullPathname = deny_path, .xRandomness = randomness,
-    .xSleep = sleep_us, .xCurrentTime = current_time,
-};
-int app_register_snapshot_vfs(void) {
-    int rc = sqlite3_initialize();
-    return rc == SQLITE_OK ? sqlite3_vfs_register(&vfs, 0) : rc;
-}
 
 static int authorizer(void *context, int action, const char *a, const char *b,
                       const char *db, const char *origin) {
@@ -90,107 +33,33 @@ int app_set_write_authorizer(sqlite3 *db) {
     return sqlite3_set_authorizer(db, authorizer, db);
 }
 
-static int fail(char *error, size_t cap, const char *message) {
-    if (cap) snprintf(error, cap, "%s", message);
-    return 0;
-}
-
-/* The lock follows SQLite's shared lock protocol. The snapshot requires a
- * cleanly closed rollback-mode database, since journal access is prohibited. */
-int app_open(const char *path, sqlite3 **out, char *error, size_t cap) {
-    static const unsigned char magic[16] = "SQLite format 3";
-    const off_t max_size = 256 * 1024 * 1024;
-    int fd = -1, rc = 0;
-    unsigned char *data = NULL;
-    sqlite3 *db = NULL;
-    struct stat before, after;
-    struct flock pending = { .l_type = F_RDLCK, .l_whence = SEEK_SET,
-                             .l_start = 1073741824, .l_len = 1 };
-    struct flock lock = { .l_type = F_RDLCK, .l_whence = SEEK_SET,
-                          .l_start = 1073741826, .l_len = 510 };
-    *out = NULL;
-    fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
-    if (fd < 0) return fail(error, cap, "Cannot open database file without following a symlink");
-    if (fstat(fd, &before) || !S_ISREG(before.st_mode) || before.st_size < 100 || before.st_size > max_size) {
-        fail(error, cap, "Database must be a regular file between 100 bytes and 256 MiB");
-        goto done;
-    }
-    if (fcntl(fd, F_SETLK, &pending) < 0 || fcntl(fd, F_SETLK, &lock) < 0) {
-        fail(error, cap, "Database is locked by another process");
-        goto done;
-    }
-    pending.l_type = F_UNLCK;
-    if (fcntl(fd, F_SETLK, &pending) < 0) {
-        fail(error, cap, "Cannot release pending lock");
-        goto done;
-    }
-    sqlite3_hard_heap_limit64(320LL * 1024 * 1024);
-    data = sqlite3_malloc64((sqlite3_uint64)before.st_size);
-    if (!data) { fail(error, cap, "Out of memory"); goto done; }
-    size_t offset = 0, length = (size_t)before.st_size;
-    while (offset < length) {
-        ssize_t n = read(fd, data + offset, length - offset);
-        if (n < 0 && errno == EINTR) continue;
-        if (n <= 0) { fail(error, cap, "Could not read database snapshot"); goto done; }
-        offset += (size_t)n;
-    }
-    if (fstat(fd, &after) || before.st_size != after.st_size ||
-        before.st_mtim.tv_sec != after.st_mtim.tv_sec || before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
-        before.st_ctim.tv_sec != after.st_ctim.tv_sec || before.st_ctim.tv_nsec != after.st_ctim.tv_nsec) {
-        fail(error, cap, "Database changed while reading");
-        goto done;
-    }
-    if (memcmp(data, magic, sizeof(magic))) { fail(error, cap, "Not a SQLite database"); goto done; }
-    if (data[18] != 1 || data[19] != 1) {
-        fail(error, cap, "WAL databases are not supported by this read-only snapshot");
-        goto done;
-    }
-    if (app_register_snapshot_vfs() != SQLITE_OK ||
-        sqlite3_open_v2(":memory:", &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX, "no-files") != SQLITE_OK) {
-        fail(error, cap, "Cannot initialize SQLite"); goto done;
-    }
-    if (sqlite3_db_config(db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, NULL) != SQLITE_OK ||
-        sqlite3_db_config(db, SQLITE_DBCONFIG_DEFENSIVE, 1, NULL) != SQLITE_OK) {
-        fail(error, cap, "Cannot enable SQLite safety settings"); goto done;
-    }
-    sqlite3_limit(db, SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024);
-    sqlite3_limit(db, SQLITE_LIMIT_COLUMN, 128);
-    sqlite3_limit(db, SQLITE_LIMIT_SQL_LENGTH, 4096);
-    int result = sqlite3_deserialize(db, "main", data, (sqlite3_int64)length, (sqlite3_int64)length,
-                                     SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_READONLY);
-    data = NULL;
-    if (result != SQLITE_OK) { fail(error, cap, "Cannot load database snapshot"); goto done; }
-    if (sqlite3_set_authorizer(db, authorizer, NULL) != SQLITE_OK) { fail(error, cap, "Cannot enforce read-only mode"); goto done; }
-    *out = db;
-    db = NULL;
-    rc = 1;
-done:
-    if (data) sqlite3_free(data);
-    if (db) sqlite3_close(db);
-    if (fd >= 0) close(fd);
+int app_prepare_tables(sqlite3 *db, sqlite3_int64 offset, sqlite3_stmt **stmt) {
+    int rc = sqlite3_prepare_v2(db,
+        "SELECT name FROM sqlite_schema WHERE type='table' AND substr(name,1,7) COLLATE NOCASE != 'sqlite_' ORDER BY name LIMIT 129 OFFSET ?1",
+        -1, stmt, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(*stmt, 1, offset);
+    if (rc != SQLITE_OK && *stmt) { sqlite3_finalize(*stmt); *stmt = NULL; }
     return rc;
 }
-
-int app_prepare_tables(sqlite3 *db, sqlite3_stmt **stmt) {
-    return sqlite3_prepare_v2(db,
-        "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-        -1, stmt, NULL);
-}
-int app_prepare_rows(sqlite3 *db, const char *table, sqlite3_stmt **stmt) {
-    char *sql = sqlite3_mprintf("SELECT * FROM \"%w\" LIMIT 500", table);
+int app_prepare_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, sqlite3_stmt **stmt) {
+    char *sql = sqlite3_mprintf("SELECT * FROM \"%w\" LIMIT 501 OFFSET ?1", table);
     if (!sql) return SQLITE_NOMEM;
     int rc = sqlite3_prepare_v2(db, sql, -1, stmt, NULL);
     sqlite3_free(sql);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(*stmt, 1, offset);
+    if (rc != SQLITE_OK && *stmt) { sqlite3_finalize(*stmt); *stmt = NULL; }
     return rc;
 }
 
 /* Only ordinary rowid tables support cell updates. Metadata queries are
  * internal and run before preparing user-facing statements. */
-static int rowid_alias(sqlite3 *db, const char *table, const char **out) {
+static int rowid_alias(sqlite3 *db, const char *table, const char **out, int *without_rowid, int *ordinary_table) {
     static const char *aliases[] = { "_rowid_", "rowid", "oid" };
     sqlite3_stmt *stmt = NULL;
     int ordinary = 0, rc;
     *out = NULL;
+    *without_rowid = 0;
+    *ordinary_table = 0;
     if (sqlite3_set_authorizer(db, NULL, NULL) != SQLITE_OK) return SQLITE_ERROR;
     rc = sqlite3_prepare_v2(db, "PRAGMA main.table_list", -1, &stmt, NULL);
     if (rc == SQLITE_OK) {
@@ -199,8 +68,10 @@ static int rowid_alias(sqlite3 *db, const char *table, const char **out) {
             const unsigned char *name = sqlite3_column_text(stmt, 1);
             const unsigned char *type = sqlite3_column_text(stmt, 2);
             if (schema && !strcmp((const char *)schema, "main") && name && type && !sqlite3_stricmp((const char *)name, table) &&
-                !strcmp((const char *)type, "table") && sqlite3_column_int(stmt, 4) == 0) {
-                ordinary = 1;
+                !strcmp((const char *)type, "table")) {
+                *ordinary_table = 1;
+                if (sqlite3_column_int(stmt, 4)) *without_rowid = 1;
+                else ordinary = 1;
                 break;
             }
         }
@@ -224,22 +95,92 @@ static int rowid_alias(sqlite3 *db, const char *table, const char **out) {
     for (int i = 0; i < 3; ++i) if (!used[i]) { *out = aliases[i]; break; }
     return SQLITE_OK;
 }
-int app_prepare_editable_rows(sqlite3 *db, const char *table, sqlite3_stmt **stmt, int *has_rowid) {
+/* Order by every primary-key component with binary collation. This gives a
+ * unique, repeatable row order even when the declared key uses another collation. */
+struct primary_key { int count; char *names[2000]; };
+static void free_primary_key(struct primary_key *key) {
+    for (int i = 0; i < key->count; ++i) sqlite3_free(key->names[i]);
+    key->count = 0;
+}
+static int get_primary_key(sqlite3 *db, const char *table, struct primary_key *key, int require_nonnull) {
+    sqlite3_stmt *stmt = NULL;
+    char *sql = NULL;
+    int rc = sqlite3_set_authorizer(db, NULL, NULL);
+    key->count = 0;
+    if (rc != SQLITE_OK) return rc;
+    sql = sqlite3_mprintf("PRAGMA main.table_xinfo(\"%w\")", table);
+    if (!sql) rc = SQLITE_NOMEM;
+    if (rc == SQLITE_OK) rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+    sqlite3_free(sql);
+    if (rc == SQLITE_OK) {
+        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+            if (sqlite3_column_int(stmt, 5) == 0) continue;
+            if (require_nonnull && !sqlite3_column_int(stmt, 3)) { rc = SQLITE_CONSTRAINT; break; }
+            const unsigned char *name = sqlite3_column_text(stmt, 1);
+            if (!name || key->count == 2000) { rc = SQLITE_ERROR; break; }
+            char *copy = sqlite3_mprintf("%s", name);
+            if (!copy) { rc = SQLITE_NOMEM; break; }
+            key->names[key->count++] = copy;
+        }
+        if (rc == SQLITE_DONE) rc = SQLITE_OK;
+    }
+    if (stmt) sqlite3_finalize(stmt);
+    if (app_set_write_authorizer(db) != SQLITE_OK && rc == SQLITE_OK) rc = SQLITE_ERROR;
+    if (rc == SQLITE_OK && !key->count) rc = SQLITE_ERROR;
+    if (rc != SQLITE_OK) free_primary_key(key);
+    return rc;
+}
+static int prepare_key_rows(sqlite3 *db, const char *table, sqlite3_int64 offset,
+                            const struct primary_key *key, sqlite3_stmt **stmt) {
+    sqlite3_str *builder = sqlite3_str_new(db);
+    sqlite3_str_appendf(builder, "SELECT * FROM main.\"%w\" ORDER BY ", table);
+    for (int i = 0; i < key->count; ++i)
+        sqlite3_str_appendf(builder, "%s\"%w\" COLLATE BINARY", i ? "," : "", key->names[i]);
+    sqlite3_str_appendall(builder, " LIMIT 501 OFFSET ?1");
+    char *sql = sqlite3_str_finish(builder);
+    if (!sql) return SQLITE_NOMEM;
+    int rc = sqlite3_prepare_v2(db, sql, -1, stmt, NULL);
+    sqlite3_free(sql);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(*stmt, 1, offset);
+    if (rc != SQLITE_OK && *stmt) { sqlite3_finalize(*stmt); *stmt = NULL; }
+    return rc;
+}
+int app_prepare_editable_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, sqlite3_stmt **stmt, int *has_rowid) {
     const char *alias = NULL;
     *stmt = NULL;
     *has_rowid = 0;
-    int rc = rowid_alias(db, table, &alias);
+    int without_rowid = 0, ordinary_table = 0;
+    int rc = rowid_alias(db, table, &alias, &without_rowid, &ordinary_table);
     if (rc != SQLITE_OK) return rc;
+    if (without_rowid || (ordinary_table && !alias)) {
+        struct primary_key key;
+        rc = get_primary_key(db, table, &key, !without_rowid);
+        if (rc == SQLITE_CONSTRAINT || rc == SQLITE_ERROR) return app_prepare_rows(db, table, offset, stmt);
+        if (rc != SQLITE_OK) return rc;
+        if (key.count > 900) {
+            free_primary_key(&key);
+            return app_prepare_rows(db, table, offset, stmt);
+        }
+        rc = prepare_key_rows(db, table, offset, &key, stmt);
+        free_primary_key(&key);
+        if (rc == SQLITE_OK && *stmt) {
+            *has_rowid = 2;
+            return SQLITE_OK;
+        }
+        if (rc == SQLITE_TOOBIG || rc == SQLITE_ERROR) return app_prepare_rows(db, table, offset, stmt);
+        return rc;
+    }
     if (alias) {
-        char *sql = sqlite3_mprintf("SELECT \"%w\", * FROM \"%w\" LIMIT 500", alias, table);
+        char *sql = sqlite3_mprintf("SELECT \"%w\", * FROM \"%w\" LIMIT 501 OFFSET ?1", alias, table);
         if (!sql) return SQLITE_NOMEM;
         rc = sqlite3_prepare_v2(db, sql, -1, stmt, NULL);
         sqlite3_free(sql);
+        if (rc == SQLITE_OK && *stmt) rc = sqlite3_bind_int64(*stmt, 1, offset);
         if (rc == SQLITE_OK && *stmt) { *has_rowid = 1; return SQLITE_OK; }
         if (*stmt) sqlite3_finalize(*stmt);
         *stmt = NULL;
     }
-    return app_prepare_rows(db, table, stmt);
+    return app_prepare_rows(db, table, offset, stmt);
 }
 int app_data_version(sqlite3 *db, int writable, int *version) {
     sqlite3_stmt *stmt = NULL;
@@ -308,26 +249,11 @@ static int internal_transaction(sqlite3 *db, const char *sql) {
     int restore = app_set_write_authorizer(db);
     return rc != SQLITE_OK ? rc : restore;
 }
-static int check_wal_mode(sqlite3 *db) {
-    sqlite3_stmt *stmt = NULL;
-    int rc = sqlite3_set_authorizer(db, NULL, NULL);
-    if (rc == SQLITE_OK) rc = sqlite3_prepare_v2(db, "PRAGMA journal_mode", -1, &stmt, NULL);
-    if (rc == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW) {
-        const unsigned char *mode = sqlite3_column_text(stmt, 0);
-        if (!mode || strcmp((const char *)mode, "wal")) rc = SQLITE_READONLY;
-    } else if (rc == SQLITE_OK) rc = SQLITE_ERROR;
-    if (stmt) sqlite3_finalize(stmt);
-    if (app_set_write_authorizer(db) != SQLITE_OK && rc == SQLITE_OK) rc = SQLITE_ERROR;
-    return rc;
-}
 int app_execute_write(sqlite3 *db, const char *sql, char *error, size_t cap) {
     sqlite3_stmt *stmt = NULL;
     int mutating = 0;
     int rc = internal_transaction(db, "BEGIN IMMEDIATE");
     if (rc != SQLITE_OK) goto failed;
-    /* Hold the write lock while verifying that SQLite still uses WAL. */
-    rc = check_wal_mode(db);
-    if (rc != SQLITE_OK) goto rollback;
     rc = app_prepare_statement(db, sql, &stmt, 1, &mutating);
     if (rc != SQLITE_OK || !stmt || !mutating) {
         if (rc == SQLITE_OK) rc = SQLITE_AUTH;
@@ -344,7 +270,7 @@ int app_execute_write(sqlite3 *db, const char *sql, char *error, size_t cap) {
     if (rc != SQLITE_OK) goto rollback;
     return 1;
 rollback:
-    if (cap) snprintf(error, cap, "%s", rc == SQLITE_READONLY ? "Database is not in WAL mode" : sqlite3_errmsg(db));
+    if (cap) snprintf(error, cap, "%s", sqlite3_errmsg(db));
     if (stmt) sqlite3_finalize(stmt);
     (void)internal_transaction(db, "ROLLBACK");
     return 0;
@@ -353,31 +279,83 @@ failed:
     return 0;
 }
 
+static int hex_digit(unsigned char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
+}
+
 int app_update_cell(sqlite3 *db, const char *table, const char *column, sqlite3_int64 rowid,
+                    int key_kind, sqlite3_int64 page_offset, int page_row,
                     const char *value, int value_type, int expected_version, char *error, size_t cap) {
-    sqlite3_stmt *stmt = NULL;
+    sqlite3_stmt *stmt = NULL, *row = NULL;
+    struct primary_key key = { .count = 0 };
     char *sql = NULL;
     const char *alias = NULL;
+    int without_rowid = 0, ordinary_table = 0;
     int version = 0, rc = internal_transaction(db, "BEGIN IMMEDIATE");
     if (rc != SQLITE_OK) goto failed;
-    rc = check_wal_mode(db);
-    if (rc != SQLITE_OK) goto rollback;
     rc = app_data_version(db, 1, &version);
     if (rc != SQLITE_OK) goto rollback;
     if (version != expected_version) {
         if (cap) snprintf(error, cap, "Database changed. Reload before editing");
         goto rollback_message;
     }
-    rc = rowid_alias(db, table, &alias);
-    if (rc != SQLITE_OK || !alias) {
-        if (cap) snprintf(error, cap, "Table cannot be edited by rowid");
+    rc = rowid_alias(db, table, &alias, &without_rowid, &ordinary_table);
+    if (rc != SQLITE_OK || (key_kind == 1 && !alias) || (key_kind == 2 && !ordinary_table) ||
+        (key_kind != 1 && key_kind != 2)) {
+        if (cap) snprintf(error, cap, "Table cannot be edited with the selected key");
         goto rollback_message;
     }
-    sql = sqlite3_mprintf("UPDATE main.\"%w\" SET \"%w\"=?1 WHERE \"%w\"=?2", table, column, alias);
+    if (key_kind == 1) {
+        sql = sqlite3_mprintf("UPDATE main.\"%w\" SET \"%w\"=?1 WHERE \"%w\"=?2", table, column, alias);
+    } else {
+        if (page_offset < 0 || page_row < 0 || page_row >= 500) {
+            if (cap) snprintf(error, cap, "Invalid selected row");
+            goto rollback_message;
+        }
+        rc = get_primary_key(db, table, &key, !without_rowid);
+        if (rc != SQLITE_OK) goto rollback;
+        rc = prepare_key_rows(db, table, page_offset, &key, &row);
+        if (rc != SQLITE_OK) goto rollback;
+        app_query_begin(db);
+        for (int i = 0; i <= page_row; ++i) {
+            rc = sqlite3_step(row);
+            if (rc != SQLITE_ROW) break;
+        }
+        app_query_end(db);
+        if (rc != SQLITE_ROW) {
+            if (rc == SQLITE_DONE) {
+                if (cap) snprintf(error, cap, "Selected row no longer exists");
+                goto rollback_message;
+            }
+            goto rollback;
+        }
+        sqlite3_str *builder = sqlite3_str_new(db);
+        sqlite3_str_appendf(builder, "UPDATE main.\"%w\" SET \"%w\"=?1 WHERE ", table, column);
+        for (int i = 0; i < key.count; ++i)
+            sqlite3_str_appendf(builder, "%s\"%w\" COLLATE BINARY IS ?%d", i ? " AND " : "", key.names[i], i + 2);
+        sql = sqlite3_str_finish(builder);
+    }
     if (!sql) { rc = SQLITE_NOMEM; goto rollback; }
     rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
     sqlite3_free(sql); sql = NULL;
     if (rc != SQLITE_OK || !stmt) goto rollback;
+    if (key_kind == 2) {
+        for (int i = 0; i < key.count; ++i) {
+            int col = -1;
+            for (int j = 0; j < sqlite3_column_count(row); ++j) {
+                const char *name = sqlite3_column_name(row, j);
+                if (name && !strcmp(name, key.names[i])) { col = j; break; }
+            }
+            if (col < 0) { rc = SQLITE_ERROR; goto rollback; }
+            rc = sqlite3_bind_value(stmt, i + 2, sqlite3_column_value(row, col));
+            if (rc != SQLITE_OK) goto rollback;
+        }
+        sqlite3_finalize(row); row = NULL;
+        free_primary_key(&key);
+    }
     if (value_type == SQLITE_INTEGER) {
         char *end = NULL;
         errno = 0;
@@ -398,11 +376,30 @@ int app_update_cell(sqlite3 *db, const char *table, const char *column, sqlite3_
         rc = sqlite3_bind_double(stmt, 1, number);
     } else if (value_type == SQLITE_TEXT) {
         rc = sqlite3_bind_text(stmt, 1, value, -1, SQLITE_TRANSIENT);
+    } else if (value_type == SQLITE_BLOB) {
+        unsigned char bytes[2048];
+        size_t len = strlen(value);
+        if (len > sizeof(bytes) * 2 || len % 2) {
+            if (cap) snprintf(error, cap, "Enter an even number of hexadecimal digits");
+            goto rollback_message;
+        }
+        for (size_t i = 0; i < len; i += 2) {
+            int hi = hex_digit((unsigned char)value[i]);
+            int lo = hex_digit((unsigned char)value[i + 1]);
+            if (hi < 0 || lo < 0) {
+                if (cap) snprintf(error, cap, "Enter an even number of hexadecimal digits");
+                goto rollback_message;
+            }
+            bytes[i / 2] = (unsigned char)((hi << 4) | lo);
+        }
+        rc = sqlite3_bind_blob(stmt, 1, bytes, (int)(len / 2), SQLITE_TRANSIENT);
+    } else if (value_type == SQLITE_NULL) {
+        rc = sqlite3_bind_null(stmt, 1);
     } else {
         if (cap) snprintf(error, cap, "Unsupported cell type");
         goto rollback_message;
     }
-    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(stmt, 2, rowid);
+    if (rc == SQLITE_OK && key_kind == 1) rc = sqlite3_bind_int64(stmt, 2, rowid);
     if (rc != SQLITE_OK) goto rollback;
     app_query_begin(db);
     rc = sqlite3_step(stmt);
@@ -423,6 +420,8 @@ rollback:
 rollback_message:
     if (sql) sqlite3_free(sql);
     if (stmt) sqlite3_finalize(stmt);
+    if (row) sqlite3_finalize(row);
+    free_primary_key(&key);
     (void)internal_transaction(db, "ROLLBACK");
     return 0;
 failed:

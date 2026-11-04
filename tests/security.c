@@ -6,7 +6,8 @@
 #include <string.h>
 #include <unistd.h>
 
-int app_open(const char *, sqlite3 **, char *, size_t);
+int app_open_live(const char *, int, sqlite3 **, char *, size_t);
+void app_live_close(void);
 int app_prepare_query(sqlite3 *, const char *, sqlite3_stmt **);
 void app_query_begin(sqlite3 *);
 void app_query_end(sqlite3 *);
@@ -36,7 +37,7 @@ int main(void) {
         written += n;
     }
     close(fd); fd = -1;
-    if (!app_open(path, &db, error, sizeof(error))) goto done;
+    if (!app_open_live(path, 0, &db, error, sizeof(error))) goto done;
     if (run(db, "SELECT * FROM t") != SQLITE_OK) goto done;
     const char *denied[] = {
         "INSERT INTO t VALUES(8)", "UPDATE t SET v=9", "DELETE FROM t",
@@ -84,6 +85,7 @@ int main(void) {
 done:
     if (!ok) fprintf(stderr, "Security test failed: %s\n", error);
     if (db) sqlite3_close(db);
+    app_live_close();
     if (source) sqlite3_close(source);
     if (bytes) sqlite3_free(bytes);
     if (fd >= 0) close(fd);

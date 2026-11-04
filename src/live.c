@@ -11,10 +11,10 @@
 #include <unistd.h>
 
 /* The native SQLite VFS never receives a real path. Its path-based system
- * calls are restricted to three synthetic names anchored at one directory fd. */
+ * calls are restricted to four synthetic names anchored at one directory fd. */
 static int directory_fd = -1;
 static int live_writable;
-static char main_name[256], wal_name[256], shm_name[256];
+static char main_name[256], wal_name[256], shm_name[256], journal_name[256];
 static sqlite3_vfs *unix_vfs;
 static sqlite3_vfs restricted_vfs;
 static int registered;
@@ -27,21 +27,22 @@ static const char *allowed_name(const char *path) {
     if (!strcmp(path, "/db")) return main_name;
     if (!strcmp(path, "/db-wal")) return wal_name;
     if (!strcmp(path, "/db-shm")) return shm_name;
+    if (!strcmp(path, "/db-journal")) return journal_name;
     return NULL;
 }
 static int safe_open(const char *path, int flags, int mode) {
     const char *name = allowed_name(path);
-    if (!name || directory_fd < 0) { errno = EACCES; return -1; }
+    if (!name || directory_fd < 0 || (flags & O_TRUNC)) { errno = EACCES; return -1; }
     if (!live_writable && strcmp(path, "/db-shm") && (flags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC))) {
         errno = EACCES; return -1;
     }
-    struct open_how how = { .flags = (unsigned long long)(flags | O_NOFOLLOW | O_CLOEXEC),
+    struct open_how how = { .flags = (unsigned long long)(flags | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK),
                             .mode = ((flags & O_CREAT) || ((flags & O_TMPFILE) == O_TMPFILE)) ? (unsigned int)mode : 0,
                             .resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS };
     int fd = (int)syscall(SYS_openat2, directory_fd, name, &how, sizeof(how));
     if (fd >= 0) {
         struct stat st;
-        if (fstat(fd, &st) || !S_ISREG(st.st_mode)) {
+        if (fstat(fd, &st) || !S_ISREG(st.st_mode) || (strcmp(path, "/db") && st.st_nlink != 1)) {
             close(fd); errno = EACCES; return -1;
         }
     }
@@ -51,7 +52,7 @@ static int safe_stat(const char *path, struct stat *st) {
     const char *name = allowed_name(path);
     if (!name || directory_fd < 0) { errno = EACCES; return -1; }
     if (fstatat(directory_fd, name, st, AT_SYMLINK_NOFOLLOW)) return -1;
-    if (!S_ISREG(st->st_mode)) { errno = EACCES; return -1; }
+    if (!S_ISREG(st->st_mode) || (strcmp(path, "/db") && st->st_nlink != 1)) { errno = EACCES; return -1; }
     return 0;
 }
 static int safe_access(const char *path, int mode) {
@@ -75,7 +76,8 @@ static int restricted_open(sqlite3_vfs *v, sqlite3_filename path, sqlite3_file *
     (void)v;
     if (!path || (!strcmp(path, "/db") && !(flags & SQLITE_OPEN_MAIN_DB)) ||
         (!strcmp(path, "/db-wal") && !(flags & SQLITE_OPEN_WAL)) ||
-        (strcmp(path, "/db") && strcmp(path, "/db-wal"))) return SQLITE_CANTOPEN;
+        (!strcmp(path, "/db-journal") && !(flags & SQLITE_OPEN_MAIN_JOURNAL)) ||
+        (strcmp(path, "/db") && strcmp(path, "/db-wal") && strcmp(path, "/db-journal"))) return SQLITE_CANTOPEN;
     if (!strcmp(path, "/db") && (flags & SQLITE_OPEN_CREATE)) return SQLITE_CANTOPEN;
     if (!live_writable) {
         flags &= ~(SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
@@ -90,9 +92,6 @@ static int restricted_delete(sqlite3_vfs *v, const char *path, int sync) {
 }
 static int restricted_access(sqlite3_vfs *v, const char *path, int flags, int *result) {
     (void)v;
-    /* SQLite probes the rollback-journal name before it recognizes WAL mode.
-     * Recovery journals are outside the file allowlist and are never read. */
-    if (path && !strcmp(path, "/db-journal")) { *result = 0; return SQLITE_OK; }
     if (!allowed_name(path)) return SQLITE_IOERR_ACCESS;
     struct stat st;
     *result = 0;
@@ -170,7 +169,7 @@ static int open_connection(int writable, sqlite3 **out, char *error, size_t cap)
         sqlite3_db_readonly(db, "main") != (writable ? 0 : 1)) {
         if (db) sqlite3_close(db);
         live_writable = previous;
-        return fail(error, cap, "Cannot open WAL database with requested access");
+        return fail(error, cap, "Cannot open database with requested access");
     }
     int persist = 1;
     if (sqlite3_db_config(db, SQLITE_DBCONFIG_TRUSTED_SCHEMA, 0, NULL) != SQLITE_OK ||
@@ -184,12 +183,12 @@ static int open_connection(int writable, sqlite3 **out, char *error, size_t cap)
     }
     sqlite3_busy_timeout(db, 1000);
     sqlite3_limit(db, SQLITE_LIMIT_LENGTH, 16 * 1024 * 1024);
-    sqlite3_limit(db, SQLITE_LIMIT_COLUMN, 128);
-    sqlite3_limit(db, SQLITE_LIMIT_SQL_LENGTH, 4096);
+    sqlite3_limit(db, SQLITE_LIMIT_COLUMN, 2000);
+    sqlite3_limit(db, SQLITE_LIMIT_SQL_LENGTH, 1024 * 1024);
     *out = db;
     return 1;
 }
-int app_reopen_wal(sqlite3 *current, int writable, sqlite3 **out, char *error, size_t cap) {
+int app_reopen_live(sqlite3 *current, int writable, sqlite3 **out, char *error, size_t cap) {
     sqlite3 *next = NULL;
     int previous = live_writable;
     *out = NULL;
@@ -202,15 +201,15 @@ int app_reopen_wal(sqlite3 *current, int writable, sqlite3 **out, char *error, s
     *out = next;
     return 1;
 }
-int app_open_wal(const char *path, int writable, sqlite3 **out, char *error, size_t cap) {
+int app_open_live(const char *path, int writable, sqlite3 **out, char *error, size_t cap) {
     char dir[4096];
     const char *slash = strrchr(path, '/');
     const char *base = slash ? slash + 1 : path;
     size_t n = strlen(base);
     sqlite3 *db = NULL;
     *out = NULL;
-    if (directory_fd >= 0) return fail(error, cap, "A WAL database is already open");
-    if (!n || n > 245 || !strcmp(base, ".") || !strcmp(base, ".."))
+    if (directory_fd >= 0) return fail(error, cap, "A database is already open");
+    if (!n || n > 247 || !strcmp(base, ".") || !strcmp(base, ".."))
         return fail(error, cap, "Invalid database filename");
     size_t dir_len = slash ? (size_t)(slash - path) : 1;
     if (dir_len >= sizeof(dir)) return fail(error, cap, "Database path is too long");
@@ -220,6 +219,7 @@ int app_open_wal(const char *path, int writable, sqlite3 **out, char *error, siz
     memcpy(main_name, base, n + 1);
     snprintf(wal_name, sizeof(wal_name), "%s-wal", base);
     snprintf(shm_name, sizeof(shm_name), "%s-shm", base);
+    snprintf(journal_name, sizeof(journal_name), "%s-journal", base);
     struct open_how how = { .flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC,
                             .resolve = RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS };
     directory_fd = (int)syscall(SYS_openat2, AT_FDCWD, dir, &how, sizeof(how));
@@ -228,14 +228,35 @@ int app_open_wal(const char *path, int writable, sqlite3 **out, char *error, siz
     int fd = safe_open("/db", O_RDONLY, 0);
     unsigned char hdr[100];
     if (fd < 0 || pread(fd, hdr, sizeof(hdr), 0) != sizeof(hdr) ||
-        memcmp(hdr, "SQLite format 3\0", 16) || hdr[18] != 2 || hdr[19] != 2) {
+        memcmp(hdr, "SQLite format 3\0", 16)) {
         if (fd >= 0) close(fd);
         app_live_close();
-        return fail(error, cap, "A valid WAL-mode database without symlinks is required");
+        return fail(error, cap, "A valid SQLite database without symlinks is required");
     }
     close(fd);
+    sqlite3_hard_heap_limit64(320LL * 1024 * 1024);
     if (prepare_vfs() != SQLITE_OK) { app_live_close(); return fail(error, cap, "Cannot initialize restricted SQLite VFS"); }
     if (!open_connection(writable, &db, error, cap)) { app_live_close(); return 0; }
     *out = db;
+    return 1;
+}
+
+/* Recovery is invoked only after explicit confirmation. A schema read makes
+ * SQLite perform any necessary hot-journal rollback while holding its locks. */
+int app_recover(const char *path, char *error, size_t cap) {
+    sqlite3 *db = NULL;
+    sqlite3_stmt *stmt = NULL;
+    if (!app_open_live(path, 1, &db, error, cap)) return 0;
+    int rc = sqlite3_prepare_v2(db, "SELECT count(*) FROM sqlite_schema", -1, &stmt, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(stmt);
+        if (rc == SQLITE_ROW) rc = SQLITE_OK;
+    }
+    if (stmt) sqlite3_finalize(stmt);
+    if (rc != SQLITE_OK && cap) snprintf(error, cap, "Recovery failed: %s", sqlite3_errmsg(db));
+    int close_rc = sqlite3_close(db);
+    app_live_close();
+    if (rc != SQLITE_OK) return 0;
+    if (close_rc != SQLITE_OK) return fail(error, cap, "Cannot close recovery connection");
     return 1;
 }

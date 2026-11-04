@@ -43,9 +43,8 @@ class WalWriteTests(unittest.TestCase):
                         data.extend(os.read(master, 65536))
 
             try:
-                send(b"", b"established WAL database")
-                send(b"y", b"[RO] NORMAL")
-                send(b":set rw\r", b"Enable write mode? y/n")
+                send(b"", b"[RO] NORMAL")
+                send(b":set rw\r", b"Enable write mode")
                 send(b"y", b"Write mode enabled")
                 send(b"\t", b"[RW] NORMAL | ROWS")
                 send(b"e", b"CELL> one")
@@ -113,9 +112,8 @@ class WalWriteTests(unittest.TestCase):
                         data.extend(os.read(master, 65536))
 
             try:
-                send(b"", b"established WAL database")
-                send(b"y", b"[RO] NORMAL")
-                send(b":set rw\r", b"Enable write mode? y/n")
+                send(b"", b"[RO] NORMAL")
+                send(b":set rw\r", b"Enable write mode")
                 send(b"y", b"Write mode enabled")
                 send(b"\t", b"[RW] NORMAL | ROWS")
                 send(b"j2l", b"Column 3/3")
@@ -126,8 +124,11 @@ class WalWriteTests(unittest.TestCase):
                 send(b"\t\t", b"[RW] NORMAL | TABLES")
                 send(b"j", b"b_no_rowid")
                 send(b"\t", b"[RW] NORMAL | ROWS")
-                send(b"e", b"Select a cell in an ordinary rowid table")
-                self.assertEqual(db.execute("SELECT n FROM b_no_rowid").fetchone()[0], "protected")
+                send(b"l", b"Column 2/2")
+                send(b"e", b"CELL> protected")
+                send(b"\x15changed without rowid\r", b"Save cell change?")
+                send(b"y", b"Cell update committed")
+                self.assertEqual(db.execute("SELECT n FROM b_no_rowid").fetchone()[0], "changed without rowid")
                 os.write(master, b"q")
                 self.assertEqual(proc.wait(timeout=5), 0)
             finally:
@@ -169,12 +170,11 @@ class WalWriteTests(unittest.TestCase):
                 wait_for(needle, start)
 
             try:
-                wait_for(b"established WAL database")
-                send(b"y", b"[RO] NORMAL")
-                send(b":set rw\r", b"Enable write mode? y/n")
+                wait_for(b"[RO] NORMAL")
+                send(b":set rw\r", b"Enable write mode")
                 send(b"n", b"Cancelled")
                 self.assertEqual(db.execute("SELECT n FROM data").fetchall(), [("one",)])
-                send(b":set rw\r", b"Enable write mode? y/n")
+                send(b":set rw\r", b"Enable write mode")
                 send(b"y", b"Write mode enabled")
                 self.assertIn(b"[RW] NORMAL", data)
                 forbidden = b"ATTACH ':memory:' AS other"
