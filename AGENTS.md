@@ -14,7 +14,7 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 # Toolchain and build commands
 
 - Pin Zig to version 0.17.1. Keep the toolchain, build caches, temporary files, and build outputs inside the workspace.
-- The repository currently has no build implementation. Implement `-Dstrip` as a boolean build option before using these commands.
+- The build implements `-Dstrip` as a boolean option.
 - Create the local cache directories with `mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp`.
 - Build for Termux aarch64 with `ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" TMPDIR="$PWD/.zig-cache/tmp" ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true`.
 - Build for desktop x86_64 with `ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" TMPDIR="$PWD/.zig-cache/tmp" ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true`.

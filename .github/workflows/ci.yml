@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/global
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
+      TMPDIR: ${{ github.workspace }}/.zig-cache/tmp
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Provision Zig 0.17.1
+        run: |
+          mkdir -p tools/zig .zig-cache/download "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR" "$TMPDIR"
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          from pathlib import Path
+          from urllib.request import urlopen
+
+          url = 'https://registry.npmjs.org/@zigpm/zig-linux-x64/-/zig-linux-x64-0.17.1.tgz'
+          path = Path('.zig-cache/download/zig.tgz')
+          with urlopen(url) as response, path.open('wb') as out:
+              while chunk := response.read(1024 * 1024):
+                  out.write(chunk)
+          expected = 'FR5JZ38wPdEbpr11l61ToM7IapXyBFlBbAiLTk7SQb6YPNCbRoEmYnZ27mARIhTWo1muIgA6eXNnM7dEGDSDgQ=='
+          assert base64.b64encode(hashlib.sha512(path.read_bytes()).digest()).decode() == expected
+          PY
+          tar -xzf .zig-cache/download/zig.tgz -C tools/zig --strip-components=1
+          echo '3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  tools/zig/zig.tar.xz' | sha256sum -c
+          tar -xJf tools/zig/zig.tar.xz -C tools/zig --strip-components=1
+          test "$(./tools/zig/zig version)" = 0.17.1
+      - name: Check formatting
+        run: ./tools/zig/zig fmt --check build.zig src/main.zig
+      - name: Build x86_64
+        run: ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
+      - name: Run tests
+        run: |
+          ./tools/zig/zig build test -Doptimize=ReleaseSmall
+          python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Build aarch64
+        run: ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/arm-output
+      - name: Check static linkage
+        run: |
+          readelf -d zig-out/bin/zig-sql-tui | grep 'There is no dynamic section'
+          readelf -d .zig-cache/arm-output/bin/zig-sql-tui | grep 'There is no dynamic section'
