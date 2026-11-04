@@ -1,0 +1,43 @@
+name: Share Termux test build
+
+on:
+  push:
+    branches:
+      - arena/1eae00f8-zig-sql-tui
+    paths:
+      - .github/workflows/share-termux-test.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-26.04
+    env:
+      TMPDIR: ${{ github.workspace }}/.zig-cache/tmp
+      HOME: ${{ github.workspace }}/.zig-cache/home
+    steps:
+      - name: Retrieve tested build and pinned ffsend release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p "$TMPDIR" "$HOME" .zig-cache/candidate .zig-cache/share
+          gh run download 41926400320 --repo zimlr/zig-sql-tui --name termux-packaged-binary --dir .zig-cache/candidate
+          (cd .zig-cache/candidate && sha256sum -c SHA256SUMS)
+          chmod +x .zig-cache/candidate/zig-sql-tui
+          tar -czf .zig-cache/share/zig-sql-tui-android-arm64-test.tar.gz -C .zig-cache/candidate zig-sql-tui
+          sha256sum .zig-cache/share/zig-sql-tui-android-arm64-test.tar.gz
+          # The upstream v0.2.77 release does not publish an asset digest.
+          gh release download v0.2.77 --repo timvisee/ffsend --pattern ffsend-v0.2.77-linux-x64 --dir .zig-cache/share
+          chmod +x .zig-cache/share/ffsend-v0.2.77-linux-x64
+          .zig-cache/share/ffsend-v0.2.77-linux-x64 --version | grep '0.2.77'
+      - name: Upload to requested transfer service
+        run: |
+          set -eu
+          sha=$(sha256sum .zig-cache/share/zig-sql-tui-android-arm64-test.tar.gz | cut -d' ' -f1)
+          link=$(.zig-cache/share/ffsend-v0.2.77-linux-x64 -Iy upload -q -h https://send.monks.tools/ .zig-cache/share/zig-sql-tui-android-arm64-test.tar.gz)
+          case "$link" in https://send.monks.tools/*) ;; *) echo 'Unexpected upload response' >&2; exit 1 ;; esac
+          printf '::notice title=Test build link::%s\n' "$link"
+          printf '::notice title=Archive SHA256::%s\n' "$sha"
