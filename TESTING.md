@@ -18,7 +18,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. The checks do not c
 - [x] Test SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths, not every possible operation.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
-- [ ] Run the aarch64 binary on native aarch64 Linux. CI contains a separate ARM runner job. Its result must be checked in the workflow run.
+- [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41912809999](https://github.com/zimlr/zig-sql-tui/actions/runs/41912809999). The x86_64 syscall tracer is skipped on ARM.
 - [ ] Test the binary in the Termux app on Android. Linux ARM CI does not reproduce Android app seccomp or execution policies.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
