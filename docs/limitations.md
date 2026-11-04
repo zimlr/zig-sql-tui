@@ -13,6 +13,7 @@
 - Grid cells show a 255-byte preview. The detail panel re-reads longer text values, but a changed or unavailable value may prevent full display.
 - Non-ASCII code points are shown as Unicode escapes. Invalid UTF-8 and ASCII control bytes use hexadecimal escapes to prevent terminal escape injection.
 - The interface requires a terminal of at least 40 columns by 12 rows.
+- Pointer and touch interaction requires a terminal that reports SGR mouse events. Touch gestures may be intercepted by the terminal.
 
 ## Input and editing
 
