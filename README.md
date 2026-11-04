@@ -45,7 +45,8 @@ The title shows the database path, focused panel, interaction mode, and access s
 | Switch panels | Tab or Enter |
 | Move through items or columns | Arrow keys or `hjkl` |
 | Move by a count | `5j`, `5k`, `5h`, or `5l` |
-| Move to the first or last item on a page | `gg` or `G` |
+| Move to the first or last item on a page | `gg` or `G`, Home or End |
+| Scroll by a screen | Page Up or Page Down |
 | Change table or row page | `[` or `]` |
 | Change column page | `<` or `>` |
 | Search the current page | `/`, then `n` or `N` |
@@ -54,7 +55,7 @@ The title shows the database path, focused panel, interaction mode, and access s
 | Show help | `?` or `:help` |
 | Reload or quit | `:reload` or `q` |
 
-Select a table, then press Tab to browse its rows. Cycle to the details panel to inspect a cell. SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
+Select a table, then press Tab to browse its rows. Mouse users can select tabs and rows, use the wheel, or drag to scroll when the terminal sends mouse events. Cycle to the details panel to inspect a cell. SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
 
 ### Write data
 

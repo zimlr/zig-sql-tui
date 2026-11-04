@@ -827,8 +827,19 @@ const App = struct {
     }
 };
 var app: App = undefined;
+var frame: [256 * 1024]u8 = undefined;
+var frame_len: usize = 0;
+var framing = false;
+var drawn_lines: [100]bool = @splat(false);
 
 fn output(fd: c_int, bytes: []const u8) void {
+    if (framing and fd == 1) {
+        if (bytes.len <= frame.len - frame_len) {
+            @memcpy(frame[frame_len..][0..bytes.len], bytes);
+            frame_len += bytes.len;
+        }
+        return;
+    }
     var offset: usize = 0;
     while (offset < bytes.len) {
         const n = write(fd, bytes[offset..].ptr, bytes.len - offset);
@@ -884,8 +895,17 @@ fn outputSafe(fd: c_int, text: []const u8) void {
     }
 }
 
+fn clearRow(row: usize) void {
+    if (framing and row > 0 and row <= drawn_lines.len and !drawn_lines[row - 1]) {
+        drawn_lines[row - 1] = true;
+        var escape: [40]u8 = undefined;
+        output(1, std.fmt.bufPrint(&escape, "\x1b[{d};1H\x1b[2K", .{row}) catch return);
+    }
+}
+
 fn printSafeAt(row: usize, col: usize, width: usize, text: []const u8) usize {
     if (width == 0) return 0;
+    clearRow(row);
     var escape: [40]u8 = undefined;
     output(1, std.fmt.bufPrint(&escape, "\x1b[{d};{d}H", .{ row, col }) catch return 0);
     var rendered: [512]u8 = undefined;
@@ -925,14 +945,21 @@ fn printItems(a: *App, start_col: usize, width: usize, is_tables: bool) void {
         const text = if (is_tables) a.tables[i].slice() else grid.slice();
         const prefix: []const u8 = if (selected == i and ((is_tables and a.focus == .tables) or (!is_tables and a.focus == .rows))) "> " else "  ";
         const formatted = std.fmt.bufPrint(&line, "{s}{s}", .{ prefix, text[0..@min(text.len, width)] }) catch continue;
+        const active = selected == i and ((is_tables and a.focus == .tables) or (!is_tables and a.focus == .rows));
+        clearRow(5 + i - first);
+        if (active) output(1, "\x1b[7m");
         printAt(5 + i - first, start_col, width, formatted);
+        if (active) output(1, "\x1b[0m");
     }
 }
 
 fn printDetails(a: *App, col: usize, width: usize) void {
     a.detail_width = @max(1, width);
     var buffer: [512]u8 = undefined;
+    clearRow(3);
+    output(1, "\x1b[7m");
     printAt(3, col, width, if (a.focus == .details) "> DETAIL / SQL" else "DETAIL / SQL");
+    output(1, "\x1b[0m");
     const position = std.fmt.bufPrint(&buffer, "Row {d}  Column {d}/{d}", .{ if (a.row_count == 0) @as(usize, 0) else a.row_offset + a.row_index + 1, if (a.column_count == 0) @as(usize, 0) else a.column_offset + a.column_index + 1, a.total_columns }) catch "Selection";
     printAt(4, col, width, position);
     if (a.row_count > 0 and a.column_count > 0) {
@@ -955,13 +982,51 @@ fn printDetails(a: *App, col: usize, width: usize) void {
     printAt(a.height - 4, col, width, if (a.writable) "j/k: scroll  e: edit  i: SQL" else "j/k: scroll  i: SQL");
 }
 
+const Layout = struct {
+    multi: bool,
+    three: bool,
+    table_width: usize,
+    middle_col: usize,
+    detail_width: usize,
+    detail_col: usize,
+    row_width: usize,
+};
+
+fn layout(a: *const App) Layout {
+    const multi = a.cols > 60;
+    const three = a.cols >= 100;
+    var name_width: usize = 6;
+    for (a.tables[0..a.table_count]) |*table| {
+        var rendered: [128]u8 = undefined;
+        const result = renderSafe(table.slice(), &rendered);
+        name_width = @max(name_width, result.used);
+    }
+    const table_width = if (multi) @min(@min(24, a.cols / 3), @max(10, name_width + 3)) else a.cols;
+    const middle_col = if (multi) table_width + 2 else 1;
+    const detail_width = if (three) @min(35, a.cols / 3) else a.cols - middle_col + 1;
+    const detail_col = if (three) a.cols - detail_width + 1 else middle_col;
+    return .{ .multi = multi, .three = three, .table_width = table_width, .middle_col = middle_col, .detail_width = detail_width, .detail_col = detail_col, .row_width = if (three) detail_col - middle_col - 1 else a.cols - middle_col + 1 };
+}
+
 fn draw(a: *App) void {
+    frame_len = 0;
+    framing = true;
+    drawn_lines = @splat(false);
+    defer {
+        var clear: [40]u8 = undefined;
+        for (0..a.height) |row| {
+            if (!drawn_lines[row]) output(1, std.fmt.bufPrint(&clear, "\x1b[{d};1H\x1b[2K", .{row + 1}) catch continue);
+        }
+        output(1, "\x1b[?2026l");
+        framing = false;
+        output(1, frame[0..frame_len]);
+    }
+    output(1, "\x1b[?2026h\x1b[?25l");
     var cols: u16 = 0;
     var height: u16 = 0;
     app_terminal_size(&cols, &height);
     a.cols = @min(cols, 240);
     a.height = @min(height, 100);
-    output(1, "\x1b[?25l\x1b[H\x1b[2J");
     if (a.cols < 40 or a.height < 12) {
         printAt(1, 1, a.cols, "Resize terminal to at least 40 x 12");
         return;
@@ -980,32 +1045,46 @@ fn draw(a: *App) void {
     };
     const title = std.fmt.bufPrint(&line, "[{s}] {s} | {s} | {s}", .{ if (a.writable) @as([]const u8, "RW") else "RO", mode_name, focus_name, a.path.slice() }) catch "[RO]";
     printAt(1, 1, a.cols, title);
+    if (!a.help and a.pending == .none and a.mode == .normal) {
+        clearRow(2);
+        output(1, "\x1b[7m");
+        printAt(2, 1, a.cols, " TABLES  ROWS  DETAIL ");
+        output(1, "\x1b[0m");
+    }
     if (a.help) {
         printAt(3, 1, a.cols, "HELP | Press any key to close");
         printAt(4, 1, a.cols, "Tab/Enter: next panel   arrows: move");
         printAt(5, 1, a.cols, "hjkl: move   5j: move five");
-        printAt(6, 1, a.cols, "gg/G: first/last   5gg/5G: row five");
+        printAt(6, 1, a.cols, "gg/G or Home/End: first/last");
         printAt(7, 1, a.cols, "/: search   n/N: next/previous match");
         printAt(8, 1, a.cols, "i: SQL   e: edit cell   Esc: cancel");
         printAt(9, 1, a.cols, ":set rw/ro  :null  :reload  q: quit");
-        printAt(10, 1, a.cols, "[/]: page tables or rows   </>: columns");
+        printAt(10, 1, a.cols, "PgUp/PgDn: scroll   []: page   <>: columns");
+        printAt(11, 1, a.cols, "Mouse: tabs, rows, wheel, drag to scroll");
         return;
     }
-    const multi = a.cols > 60;
-    const three = a.cols >= 100;
-    const table_width: usize = if (multi) @min(24, a.cols / 3) else a.cols;
-    const middle_col: usize = if (multi) table_width + 3 else 1;
-    const detail_width: usize = if (three) @min(35, a.cols / 3) else a.cols - middle_col + 1;
-    const detail_col: usize = if (three) a.cols - detail_width + 1 else middle_col;
-    const row_width: usize = if (three) detail_col - middle_col - 2 else a.cols - middle_col + 1;
+    const geometry = layout(a);
+    const multi = geometry.multi;
+    const three = geometry.three;
+    const table_width = geometry.table_width;
+    const middle_col = geometry.middle_col;
+    const detail_width = geometry.detail_width;
+    const detail_col = geometry.detail_col;
+    const row_width = geometry.row_width;
     if (multi or a.focus == .tables) {
+        clearRow(3);
+        output(1, "\x1b[7m");
         printAt(3, 1, table_width, if (a.focus == .tables) "> TABLES" else "TABLES");
+        output(1, "\x1b[0m");
         printItems(a, 1, table_width, true);
     }
     if ((multi and (three or a.focus != .details)) or (!multi and a.focus == .rows)) {
         const label: []const u8 = if (a.query_results) "QUERY RESULTS" else if (a.table_count > 0) a.tables[a.table_index].slice() else "No tables";
         const heading = std.fmt.bufPrint(&line, "ROWS: {s}", .{label}) catch "ROWS";
+        clearRow(3);
+        output(1, "\x1b[7m");
         printAt(3, middle_col, row_width, heading);
+        output(1, "\x1b[0m");
         const columns = gridLine(a, null);
         printAt(4, middle_col, row_width, columns.slice());
         printItems(a, middle_col, row_width, false);
@@ -1033,6 +1112,98 @@ fn draw(a: *App) void {
         const visible = if (clipped) text[text.len - (room - 1) ..] else text;
         const input = std.fmt.bufPrint(&line, "{s}{s}{s}", .{ label, if (clipped) "<" else "", visible }) catch label;
         printAt(a.height - 1, 1, a.cols, input);
+    }
+}
+
+var drag_y: ?usize = null;
+
+fn pointer(a: *App, sequence: []const u8, final: c_int) void {
+    if (a.pending != .none or a.mode != .normal or a.help or sequence.len < 2 or sequence[0] != '<') return;
+    var parts = std.mem.splitScalar(u8, sequence[1..], ';');
+    const button = std.fmt.parseInt(u16, parts.next() orelse return, 10) catch return;
+    const x = std.fmt.parseInt(u16, parts.next() orelse return, 10) catch return;
+    const y = std.fmt.parseInt(u16, parts.next() orelse return, 10) catch return;
+    if (parts.next() != null or x == 0 or y == 0 or x > a.cols or y > a.height) return;
+    if (final == 'm') {
+        drag_y = null;
+        return;
+    }
+    if ((button & 64) != 0) {
+        const geometry = layout(a);
+        if (geometry.multi and x <= geometry.table_width) a.focus = .tables else if (geometry.three and x >= geometry.detail_col) a.focus = .details else if (geometry.multi and a.focus != .details) a.focus = .rows;
+        a.move(if ((button & 1) == 0) -3 else 3);
+        return;
+    }
+    if ((button & 32) != 0) {
+        if (drag_y) |previous| {
+            const delta = @as(isize, @intCast(previous)) - @as(isize, @intCast(y));
+            if (delta != 0) a.move(delta);
+            drag_y = y;
+        }
+        return;
+    }
+    if ((button & 3) != 0) return;
+    drag_y = y;
+    if (y == 2) {
+        if (x <= 8) a.focus = .tables else if (x <= 14) a.focus = .rows else if (x <= 22) a.focus = .details;
+        drag_y = null;
+        return;
+    }
+    const geometry = layout(a);
+    const focus: Focus = if (!geometry.multi) a.focus else if (x <= geometry.table_width) .tables else if (geometry.three and x >= geometry.detail_col) .details else if (!geometry.three and a.focus == .details) .details else .rows;
+    a.focus = focus;
+    if (y < 5 or y >= a.height - 2 or focus == .details) return;
+    const available = a.height - 7;
+    if (y >= 5 + available) return;
+    const selected = if (focus == .tables) a.table_index else a.row_index;
+    const total = if (focus == .tables) a.table_count else a.row_count;
+    const first = if (selected >= available) selected - available + 1 else 0;
+    const target = first + y - 5;
+    if (target >= total) return;
+    a.move(@as(isize, @intCast(target)) - @as(isize, @intCast(selected)));
+    if (focus == .rows and x >= geometry.middle_col + 2) {
+        var cursor: usize = geometry.middle_col + 2;
+        for (a.column_index..a.column_count) |i| {
+            if (i != a.column_index) cursor += 3;
+            const item = &a.cells[a.row_index][i];
+            var rendered: [256]u8 = undefined;
+            const value = item.slice();
+            const width = renderSafe(value[0..@min(value.len, 48)], &rendered).used + @as(usize, if (value.len > 48 or item.truncated) 1 else 0) + @as(usize, if (i == a.column_index) 2 else 0);
+            if (x >= cursor and x < cursor + width) {
+                a.column_index = i;
+                a.detail_offset = 0;
+                break;
+            }
+            cursor += width;
+        }
+    }
+}
+
+fn navigation(a: *App, sequence: []const u8, final: c_int) void {
+    if (a.pending != .none or a.mode != .normal or a.help) return;
+    if (sequence.len > 0 and sequence[0] == '<') {
+        pointer(a, sequence, final);
+        return;
+    }
+    if (sequence.len == 0) {
+        switch (final) {
+            'A' => a.key('k'),
+            'B' => a.key('j'),
+            'C' => a.key('l'),
+            'D' => a.key('h'),
+            'H' => a.move(-100000),
+            'F' => a.move(100000),
+            else => {},
+        }
+    } else if (final == '~') {
+        const number = std.fmt.parseInt(u8, sequence, 10) catch return;
+        switch (number) {
+            1, 7 => a.move(-100000),
+            4, 8 => a.move(100000),
+            5 => a.move(-@as(isize, @intCast(a.height - 7))),
+            6 => a.move(@intCast(a.height - 7)),
+            else => {},
+        }
     }
 }
 
@@ -1141,9 +1312,10 @@ pub fn main(init: std.process.Init.Minimal) u8 {
         return 1;
     }
     defer {
-        output(1, "\x1b[0m\x1b[?25h\x1b[2J\x1b[H");
+        output(1, "\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[2J\x1b[H");
         app_terminal_leave();
     }
+    output(1, "\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[2J");
     app.refreshDetail();
     draw(&app);
     while (app.running) {
@@ -1168,6 +1340,9 @@ pub fn main(init: std.process.Init.Minimal) u8 {
                 // Retain incomplete sequences across input timeouts and resize events.
                 // Their trailing bytes must not become independent commands.
                 var final: c_int = -3;
+                var sequence: [64]u8 = undefined;
+                var length: usize = 0;
+                var overflow = false;
                 while (true) {
                     const c = app_terminal_read();
                     if (c == -3) continue;
@@ -1187,16 +1362,16 @@ pub fn main(init: std.process.Init.Minimal) u8 {
                         final = c;
                         break;
                     }
+                    if (c >= 0x20 and c <= 0x3f) {
+                        if (length < sequence.len) {
+                            sequence[length] = @intCast(c);
+                            length += 1;
+                        } else overflow = true;
+                    } else overflow = true;
                 }
                 app_terminal_size(&cols, &rows);
                 if (cols >= 40 and rows >= 12 and app.mode == .normal and app.pending == .none) {
-                    app.key(switch (final) {
-                        'A' => 'k',
-                        'B' => 'j',
-                        'C' => 'l',
-                        'D' => 'h',
-                        else => 0,
-                    });
+                    if (!overflow) navigation(&app, sequence[0..length], final);
                 }
             } else {
                 app.key(27);
