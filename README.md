@@ -20,7 +20,7 @@ The TUI is implemented in this repository. `src/main.zig` handles rendering and 
 
 ## Requirements
 
-The desktop build targets x86_64 Linux. An aarch64 Linux build is also available, but native Termux compatibility remains unverified. Version `v1.0.0` terminates with `Bad system call` on Android 13 Termux. Later builds avoid syscalls identified by the Linux seccomp probe, but require testing in the Termux app.
+The desktop build targets x86_64 Linux. An aarch64 Linux build is also available. Version `v1.0.0` terminates with `Bad system call` on Android 13 Termux. A user reported that a later test build opens a database and displays the TUI on Android 13. Broader Termux compatibility remains unverified.
 
 The interface requires a terminal of at least 40 columns by 12 rows. Database paths must not contain symbolic links.
 

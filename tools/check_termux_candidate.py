@@ -95,9 +95,9 @@ def main():
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)
         if failures:
-            print("Termux app execution remains unverified. This probe does not emulate Android.", file=sys.stderr)
+            print("This probe does not emulate Android or verify Termux app execution.", file=sys.stderr)
             return 1
-        print("Termux app execution remains unverified. This probe does not emulate Android.")
+        print("This probe does not emulate Android or verify Termux app execution.")
     return 0
 
 

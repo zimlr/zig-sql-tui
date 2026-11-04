@@ -168,7 +168,7 @@ jobs:
           done
           (cd .zig-cache/release && sha256sum zig-sql-tui-*.tar.gz > SHA256SUMS)
           cat > .zig-cache/tmp/release-notes.md <<'EOF'
-          The aarch64 artifact targets Linux. Native Termux compatibility remains unverified, and Android policies may cause additional failures.
+          The aarch64 artifact targets Linux. Broader Termux compatibility remains unverified, and Android policies may cause additional failures.
           EOF
           args=()
           if [ "$policy" = 'prerelease=true' ]; then args+=(--prerelease); fi

@@ -11,7 +11,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Clear stale error state before a new operation. Retain errors from failed table page loads and searches. A terminal test covers paging after a query error.
 - [x] Build position-independent executables without an ELF interpreter or shared-library dependencies. The upstream Termux PIE check accepts both Linux candidates.
 - [x] Replace `openat2` with an fd-anchored, no-symlink directory walk and single-component sidecar opens. Linux tests exercise the allowlist with restricted syscalls trapped. The native ARM probe passed in [CI run 41926400320](https://github.com/zimlr/zig-sql-tui/actions/runs/41926400320).
-- [ ] Verify the change in the Termux app on Android. A user reported that `v1.0.0` terminates with `Bad system call` on Android 13. The earlier ARM probe failed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
+- [x] Verify basic startup in the Termux app on Android 13. A user reported that `v1.0.0` terminates with `Bad system call`, while the later ARM64 test build opens a database and displays the TUI. The earlier ARM probe failed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
 
 ## Coverage
 
@@ -25,14 +25,15 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Run the release workflow on GitHub after an explicit user request. The initial release completed in [CI run 41923948348](https://github.com/zimlr/zig-sql-tui/actions/runs/41923948348).
 - [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41926400379](https://github.com/zimlr/zig-sql-tui/actions/runs/41926400379). Syscall tracing remains limited to x86_64.
 - [x] Package the aarch64 Linux executable with the pinned Termux build system. The packaging job passed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
-- [ ] Run the packaged binary in the Termux app on Android. Linux ARM CI does not reproduce Android app seccomp or execution policies.
+- [x] Open a database and display the TUI with the packaged ARM64 test binary in Termux on Android 13. The result is a user report.
+- [ ] Test writes, WAL, and recovery in the Termux app on Android. Linux ARM CI does not reproduce Android app seccomp or execution policies.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
 The prose checker covers project-owned Markdown and skips code spans and fenced code. It checks selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
 
 ## Termux diagnostic
 
-The [Termux compatibility workflow](.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. No package is published and no project license is declared by the recipe. An ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary. Detected incompatibilities fail the workflow. Execution inside the Termux app remains necessary.
+The [Termux compatibility workflow](.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. No package is published and no project license is declared by the recipe. An ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary. Detected incompatibilities fail the workflow. Separate testing inside the Termux app remains necessary.
 
 Run the diagnostic locally with an executable matching the Linux host architecture:
 
