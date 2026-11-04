@@ -1,0 +1,122 @@
+name: Termux compatibility
+
+on:
+  push:
+    paths:
+      - '.github/workflows/termux-compat.yml'
+      - 'build.zig'
+      - 'src/**'
+      - 'tests/termux/**'
+      - 'tools/check_termux_candidate.py'
+      - 'tools/fetch_termux_packages.sh'
+      - 'vendor/sqlite/**'
+  pull_request:
+    paths:
+      - '.github/workflows/termux-compat.yml'
+      - 'build.zig'
+      - 'src/**'
+      - 'tests/termux/**'
+      - 'tools/check_termux_candidate.py'
+      - 'tools/fetch_termux_packages.sh'
+      - 'vendor/sqlite/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    env:
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/global
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
+      TMPDIR: ${{ github.workspace }}/.zig-cache/tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Provision verified Zig compiler
+        run: |
+          mkdir -p tools/zig .zig-cache/download "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR" "$TMPDIR"
+          curl --fail --location --silent --show-error https://registry.npmjs.org/@zigpm/zig-linux-x64/-/zig-linux-x64-0.17.1.tgz --output .zig-cache/download/zig.tgz
+          echo 'fa23b02630bf478a588e66aa049236e1f5b0d920e7a84dc7979400ac3eee6346  .zig-cache/download/zig.tgz' | sha256sum -c
+          tar -xzf .zig-cache/download/zig.tgz -C tools/zig --strip-components=1
+          echo '3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  tools/zig/zig.tar.xz' | sha256sum -c
+          tar -xJf tools/zig/zig.tar.xz -C tools/zig --strip-components=1
+          test "$(./tools/zig/zig version)" = 0.17.1
+      - name: Build aarch64 Linux candidate
+        run: |
+          sha256sum -c vendor/sqlite/SHA256SUMS
+          ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
+          cd zig-out/bin
+          sha256sum zig-sql-tui > SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: termux-candidate
+          path: zig-out/bin/
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    needs: build
+    runs-on: ubuntu-26.04
+    container:
+      image: ghcr.io/termux/package-builder@sha256:35692c4bf40ff2f5389a39897584765236baa3ae5bf6906a2f1cd0ace3d3c502
+    defaults:
+      run:
+        shell: bash
+    env:
+      NDK: /home/builder/lib/android-ndk-r30
+      TERMUX_TOPDIR: ${{ github.workspace }}/.zig-cache/termux-build
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: termux-candidate
+          path: .zig-cache/candidate
+      - name: Package candidate with Termux scaffolding
+        run: |
+          (cd .zig-cache/candidate && sha256sum -c SHA256SUMS)
+          bash tools/fetch_termux_packages.sh
+          package_dir=.zig-cache/termux-packages/packages/zig-sql-tui
+          mkdir -p "$package_dir" .zig-cache/packages .zig-cache/unpacked
+          cp tests/termux/build.sh "$package_dir/build.sh"
+          cp .zig-cache/candidate/zig-sql-tui "$package_dir/zig-sql-tui"
+          (cd .zig-cache/termux-packages && ./build-package.sh -f -s -a aarch64 -o "$GITHUB_WORKSPACE/.zig-cache/packages" zig-sql-tui)
+          package=(.zig-cache/packages/zig-sql-tui_*_aarch64.deb)
+          test "${#package[@]}" = 1 && test -f "${package[0]}"
+          dpkg-deb -x "${package[0]}" .zig-cache/unpacked
+          packaged=.zig-cache/unpacked/bin/zig-sql-tui
+          cmp .zig-cache/candidate/zig-sql-tui "$packaged"
+          mkdir -p .zig-cache/packaged-binary
+          cp "$packaged" .zig-cache/packaged-binary/zig-sql-tui
+          cd .zig-cache/packaged-binary
+          sha256sum zig-sql-tui > SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: termux-packaged-binary
+          path: .zig-cache/packaged-binary/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  compatibility-probe:
+    needs: package
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: termux-packaged-binary
+          path: .zig-cache/candidate
+      - name: Check Termux ELF and restricted syscall behavior
+        run: |
+          test "$(uname -m)" = aarch64
+          (cd .zig-cache/candidate && sha256sum -c SHA256SUMS)
+          chmod +x .zig-cache/candidate/zig-sql-tui
+          bash tools/fetch_termux_packages.sh
+          python3 tools/check_termux_candidate.py .zig-cache/termux-packages .zig-cache/candidate/zig-sql-tui

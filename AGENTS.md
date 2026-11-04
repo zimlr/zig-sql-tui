@@ -5,7 +5,7 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 # Interaction model
 
 - Combine accessible, discoverable TUI controls with composable Vim-like commands.
-- Support modal operation, keyboard-first control, composable commands, counts, search, command-line mode, fast navigation, and minimal chrome.
+- Include modal operation, keyboard-first control, composable commands, counts, search, command-line mode, fast navigation, and minimal chrome.
 - Show the current location, mode, access state, and relevant next keys on every screen.
 - Provide contextual key hints, a help screen, discoverable commands, and predictable focus.
 - Make core tasks understandable and reachable without memorizing Vim keys. Vim-style keys provide accelerators, not the sole route to core actions.
@@ -16,7 +16,7 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 - Pin Zig to version 0.17.1. Keep the toolchain, build caches, temporary files, and build outputs inside the workspace.
 - The build implements `-Dstrip` as a boolean option.
 - Create the local cache directories with `mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp`.
-- Build for Termux aarch64 with `ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" TMPDIR="$PWD/.zig-cache/tmp" ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true`.
+- Cross-build for aarch64 Linux with `ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" TMPDIR="$PWD/.zig-cache/tmp" ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true`. Native Termux compatibility requires separate verification.
 - Build for desktop x86_64 with `ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" TMPDIR="$PWD/.zig-cache/tmp" ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true`.
 - Provide the pinned Zig executable at `tools/zig/zig` before building. Do not fetch dependencies during a build.
 
@@ -67,10 +67,10 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 # Definition of done
 
 - [ ] Keep this file under 150 lines and retain every required section.
-- [ ] Verify that interaction rules cover Vim qualities and TUI accessibility.
+- [ ] Check that interaction rules cover Vim qualities and TUI accessibility.
 - [ ] Specify the pinned Zig version and both target build commands.
-- [ ] Verify static SQLite, offline operation, and file-access rules use MUST or NEVER requirements.
-- [ ] Verify read-only default, explicit confirmed write mode, command switches, and visible access state.
-- [ ] Verify the required Vim keymap, layout breakpoints, resize handling, and minimum terminal size.
+- [ ] Confirm that static SQLite, offline operation, and file-access rules use MUST or NEVER requirements.
+- [ ] Inspect the read-only default, confirmed write mode, command switches, and visible access state.
+- [ ] Validate the required Vim keymap, layout breakpoints, resize handling, and minimum terminal size.
 - [ ] Run applicable tests and both target builds. Report unavailable checks and their reasons.
 - [ ] Audit every line for style violations. Report zero remaining violations before claiming completion.
