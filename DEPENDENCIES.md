@@ -19,4 +19,4 @@ GitHub Actions requires full Git commit identifiers instead of SHA-256 archive d
 
 The GitHub-hosted `ubuntu-26.04` and `ubuntu-26.04-arm` labels identify mutable runner images. GitHub does not expose an immutable image digest in `runs-on`. Preinstalled utility versions can change.
 
-The Termux diagnostic uses [termux-packages](https://github.com/termux/termux-packages) at commit `d51f6edc0aa165feb9e13de6b6bbe0d483a4fa7e`. The source archive has SHA-256 `47e80a0cf47daad7e10d657ad2ed18a6d75e4b558b32e5581851508a48076763`. The [package-builder image](https://github.com/termux/termux-packages/pkgs/container/package-builder) uses amd64 digest `sha256:35692c4bf40ff2f5389a39897584765236baa3ae5bf6906a2f1cd0ace3d3c502`.
+The Termux diagnostic uses [termux-packages](https://github.com/termux/termux-packages) at commit `d51f6edc0aa165feb9e13de6b6bbe0d483a4fa7e`. Its source archive has SHA-256 `47e80a0cf47daad7e10d657ad2ed18a6d75e4b558b32e5581851508a48076763`. The [package-builder image](https://github.com/termux/termux-packages/pkgs/container/package-builder) uses amd64 digest `sha256:35692c4bf40ff2f5389a39897584765236baa3ae5bf6906a2f1cd0ace3d3c502`.

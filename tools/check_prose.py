@@ -17,6 +17,7 @@ BANNED = re.compile(
     re.IGNORECASE,
 )
 PUNCTUATION = re.compile(r"[;—–!?]|\.\.\.|…|[\U0001F000-\U0001FAFF]")
+SENTENCE_START = re.compile(r"^\s*(?:[-*]\s+)?(?:\[[ x]\]\s*)?([A-Za-z]+)\b")
 
 
 def check_text(text):
@@ -42,6 +43,13 @@ def check_text(text):
         word = BANNED.search(prose)
         if word:
             errors.append((number, f"prohibited phrase: {word.group()}"))
+        previous = None
+        for sentence in re.split(r"(?<=[.!?])\s+", prose):
+            match = SENTENCE_START.match(sentence)
+            opening = match.group(1).casefold() if match else None
+            if opening and opening == previous:
+                errors.append((number, f"repeated sentence opening: {opening}"))
+            previous = opening
     if fence is not None:
         errors.append((number, "unclosed code fence"))
     return errors

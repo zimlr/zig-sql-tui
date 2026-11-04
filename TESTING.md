@@ -20,7 +20,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
-- [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41912809999](https://github.com/zimlr/zig-sql-tui/actions/runs/41912809999). The x86_64 syscall tracer is skipped on ARM.
+- [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41912809999](https://github.com/zimlr/zig-sql-tui/actions/runs/41912809999). Syscall tracing remains limited to x86_64.
 - [ ] Run the packaged binary in the Termux app on Android. Linux ARM CI does not reproduce Android app seccomp or execution policies.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
@@ -28,4 +28,4 @@ The prose checker covers project-owned Markdown and skips code spans and fenced 
 
 ## Termux diagnostic
 
-The [Termux compatibility workflow](.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. The recipe does not publish a package or declare a project license. The ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary. The workflow fails when either check detects an incompatibility. These checks do not replace execution inside the Termux app.
+The [Termux compatibility workflow](.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. No package is published and no project license is declared by the recipe. An ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary. Detected incompatibilities fail the workflow. Execution inside the Termux app remains necessary.

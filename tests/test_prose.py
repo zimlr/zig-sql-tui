@@ -18,6 +18,11 @@ class ProseCheckTests(unittest.TestCase):
         text = "Use `SELECT 1;` and [the reference](https://example.invalid/a?b=c).\n```sql\nSELECT 1;\n```\n"
         self.assertEqual(check_prose.check_text(text), [])
 
+    def test_flags_repeated_sentence_openings(self):
+        errors = check_prose.check_text("The reader opens a database. The reader displays its tables.\n")
+        self.assertTrue(any("repeated sentence opening" in message for _, message in errors))
+        self.assertEqual(check_prose.check_text("The reader opens a database. Tables remain visible.\n"), [])
+
     def test_flags_unclosed_fences(self):
         self.assertTrue(check_prose.check_text("```sh\necho test\n"))
 
