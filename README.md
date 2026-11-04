@@ -1,24 +1,24 @@
 # zig-sql-tui
 
-A keyboard-first Zig terminal interface for SQLite databases. The application opens databases read-only by default.
+The application is a keyboard-first Zig terminal interface for SQLite databases. It opens databases read-only by default.
 
 ## Database safety
 
-- Rollback-mode databases are opened as read-only snapshots. Open them only after a clean shutdown of all other applications.
-- WAL-mode databases use SQLite's WAL locking and may be browsed while other connections are active. Open only established WAL databases with no pending rollback recovery.
-- Recovery journals are outside the permitted file allowlist and cannot be inspected. The application requires confirmation of this limitation before interactive use.
-- Write mode is available only for WAL databases. Enter `:set rw` and confirm the mode change. Use `:set ro` to return to read-only mode.
+- Rollback-mode and WAL-mode databases use SQLite locking and may be browsed while other connections are active.
+- A hot rollback journal requires recovery before read-only access. Run `--recover` and confirm before SQLite modifies the database and journal.
+- Enter `:set rw` and confirm the mode change to enable writes. Enabling write mode may also allow SQLite to perform recovery. Use `:set ro` to return to read-only mode.
 - Each write statement and cell change requires confirmation and runs in a transaction. Cell edits reject stale data if another connection has committed since the row was loaded.
-- WAL access requires Linux `openat2` support and a database path without symbolic links. SQLite may create or update the database's SHM sidecar even in read-only mode.
+- Database access requires Linux `openat2` support and a database path without symbolic links. SQLite may create or update the database's SHM sidecar even in read-only WAL mode.
 
 ## Current limitations
 
-- A rollback-mode database requiring recovery cannot be detected safely. The application never reads its rollback journal.
-- Rollback-mode databases cannot be edited. The application does not change a database's journal mode.
-- Database files are limited to 256 MiB. Results show at most 500 rows and 32 columns, with cell values truncated to 255 bytes.
-- Cell editing supports ordinary rowid tables and ASCII text, integer, and real values. Use SQL for NULL, BLOB, non-ASCII, truncated values, and WITHOUT ROWID tables.
-- SQL entry accepts one statement of up to 255 ASCII bytes. Queries have an execution budget and a 16 MiB value limit. Attachment, extension loading, and SQL PRAGMAs are disabled.
-- Non-ASCII and control bytes are displayed as `?` to prevent terminal escape injection.
+- Recovery requiring a super-journal is not supported. Super-journals are outside the file allowlist.
+- Table names longer than 4096 bytes are skipped. SQLite queries are limited to 2000 columns. A 2000-column rowid table cannot use cell editing. WITHOUT ROWID tables with more than 900 primary-key columns are read-only in the cell editor.
+- Table and query pages are re-executed when navigated. Concurrent changes or nondeterministic SQL can change the displayed rows. Search covers the current page only.
+- Grid cells show a 255-byte preview. The detail panel re-reads longer text values. A changed or unavailable value may prevent full display.
+- Cell editing supports ordinary rowid and WITHOUT ROWID tables. Rowid tables with all aliases shadowed require a non-null primary key. BLOB editing accepts up to 2048 bytes as hexadecimal. Use SQL to insert control characters or edit NUL-containing text, text exceeding 4096 bytes, larger BLOBs, and column names exceeding 255 bytes.
+- SQL entry accepts one statement of up to 4096 UTF-8 bytes. SQLite limits schema SQL to 1 MiB, and queries have an execution budget and a 16 MiB value limit. Attachment, extension loading, and SQL PRAGMAs are disabled.
+- Non-ASCII code points are shown as Unicode escapes. Invalid UTF-8 and ASCII control bytes use hexadecimal escapes to prevent terminal escape injection.
 
 ## Build
 
@@ -37,11 +37,11 @@ For Termux, replace the target with `aarch64-linux-musl`. Both builds compile th
 ./zig-out/bin/zig-sql-tui path/to/database.sqlite
 ```
 
-Use Tab or Enter to switch panels. Use arrow keys or `hjkl` to move through rows and columns. Press `?` for help and `q` to quit. Search with `/`, then use `n` or `N` to move between matches.
+Use Tab or Enter to switch panels. Use arrow keys or `hjkl` to move through rows and columns. Use `[` and `]` to page tables or rows, and `<` and `>` to page columns. Press `?` for help and `q` to quit. Search with `/`, then use `n` or `N` to move between matches.
 
-Press `i` to enter SQL. In write mode, select a cell and press `e` to edit it. Press Enter to submit, Esc to cancel, or Ctrl-U to clear the input. Use `:reload` to refresh database contents.
+Press `i` to enter SQL. In write mode, select a cell and press `e` to edit it. Use `:null` to set the selected cell to NULL. Editing a NULL cell replaces it with text. Edit BLOB values as hexadecimal bytes. Press Enter to submit, Esc to cancel, or Ctrl-U to clear the input. Use `:reload` to refresh database contents.
 
-Use `--check path/to/database.sqlite` to check whether the reader can open a database. This is not a database integrity or recovery check.
+Use `--check path/to/database.sqlite` to check whether the reader can open a database. This is not an integrity check. If a hot journal prevents access, run `--recover path/to/database.sqlite` and confirm recovery.
 
 ## Test
 

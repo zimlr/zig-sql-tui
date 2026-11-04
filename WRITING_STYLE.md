@@ -1,6 +1,6 @@
 # Writing style: STRICT, NON-NEGOTIABLE
 
-The prose of AGENTS.md must read like a sober technical manual or engineering standard.
+Project prose must read like a sober technical manual or engineering standard.
 It must not read like an assistant reply, a product pitch, a tutorial with personality,
 or a narrative with comic relief.
 

@@ -24,7 +24,7 @@ class BrowserTests(unittest.TestCase):
         self.path = Path(self.temp.name) / "test.sqlite"
         with sqlite3.connect(self.path) as db:
             db.executescript("CREATE TABLE people(name TEXT, age INTEGER); INSERT INTO people VALUES ('Ada', 42), ('Lin', 31), (char(27) || '[2J injected', 1);")
-            db.execute("INSERT INTO people VALUES (?, ?)", ("long-value-" + "x" * 300, 5))
+            db.execute("INSERT INTO people VALUES (?, ?)", ("long-value-" + "x" * 300 + "endmarker", 5))
             db.execute('CREATE TABLE "quoted""table" (v TEXT)')
             db.execute('INSERT INTO "quoted""table" VALUES (?)', ("quoted row",))
 
@@ -68,12 +68,33 @@ class BrowserTests(unittest.TestCase):
             original_wal = hashlib.sha256(wal_file.read_bytes()).digest()
             result = self.check(wal)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn(b"WAL database: 1 tables", result.stdout)
+            self.assertIn(b"Read-only database: 1 tables", result.stdout)
             self.assertEqual(original_db, hashlib.sha256(wal.read_bytes()).digest())
             self.assertEqual(original_wal, hashlib.sha256(wal_file.read_bytes()).digest())
             self.assertEqual(db.execute("SELECT n FROM data").fetchone()[0], "committed in WAL")
         finally:
             db.close()
+
+    def test_large_wal_and_rollback_databases(self):
+        wal = self.path.parent / "large-wal.sqlite"
+        db = sqlite3.connect(wal)
+        try:
+            self.assertEqual(db.execute("PRAGMA journal_mode=WAL").fetchone()[0], "wal")
+            db.execute("CREATE TABLE data(n)")
+            db.commit()
+            with wal.open("r+b") as file:
+                file.truncate(256 * 1024 * 1024 + 4096)
+            result = self.check(wal)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(b"Read-only database: 1 tables", result.stdout)
+        finally:
+            db.close()
+
+        with self.path.open("r+b") as db:
+            db.truncate(256 * 1024 * 1024 + 4096)
+        result = self.check(self.path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b"Read-only database: 2 tables", result.stdout)
 
     def test_wal_sidecar_symlink_is_rejected(self):
         wal = self.path.parent / "wal-symlink.sqlite"
@@ -112,27 +133,6 @@ class BrowserTests(unittest.TestCase):
             self.assertIn(b"locked", result.stderr)
             fcntl.lockf(db.fileno(), fcntl.LOCK_UN, 1, 1073741824)
 
-    def test_snapshot_confirmation_can_be_cancelled(self):
-        master, slave = pty.openpty()
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        proc = subprocess.Popen([EXE, str(self.path)], stdin=slave, stdout=slave, stderr=slave)
-        os.close(slave)
-        data = bytearray()
-        try:
-            deadline = time.monotonic() + 5
-            while b"y: confirm" not in data and time.monotonic() < deadline:
-                if select.select([master], [], [], 0.1)[0]:
-                    data.extend(os.read(master, 65536))
-            self.assertIn(b"Recovery journals are not checked.", data)
-            self.assertNotIn(b"[RO] NORMAL", data)
-            os.write(master, b"n")
-            self.assertEqual(proc.wait(timeout=5), 0)
-        finally:
-            if proc.poll() is None:
-                proc.kill()
-                proc.wait()
-            os.close(master)
-
     def test_tui_navigation_resize_and_write_refusal(self):
         original = hashlib.sha256(self.path.read_bytes()).digest()
         master, slave = pty.openpty()
@@ -160,18 +160,17 @@ class BrowserTests(unittest.TestCase):
             wait_for(needle, start)
 
         try:
-            wait_for(b"Recovery journals are not checked.")
-            send(b"y", b"[RO] NORMAL")
+            wait_for(b"[RO] NORMAL")
             wait_for(b"people")
-            wait_for(b"?[2J injected")
+            wait_for(b"\\x1B[2J injected")
             wait_for(b"Tab: panel")
             self.assertIn(b"DETAIL / SQL", collected)
             send(b"2gg", b"quoted row")
-            send(b"gg", b"?[2J injected")
+            send(b"gg", b"\\x1B[2J injected")
             send(b"\t", b"[RO] NORMAL | ROWS")
             send(b"l", b"Column 2/2")
             send(b"h", b"Column 1/2")
-            send(b"G", b"Value truncated at 255 bytes")
+            send(b"G", b"endmarker")
             send(b"/Lin\r", b"Match found")
             query = b"SELECT count(*) AS total FROM people"
             send(b"i" + query + b"\r", b"Read-only query results")
@@ -180,7 +179,8 @@ class BrowserTests(unittest.TestCase):
             send(b"\x7f" * len(query) + b"DELETE FROM people\r", b"Enter exactly one read-only SQL statement")
             send(b"\t", b"[RO] NORMAL | DETAIL")
             send(b"h", b"[RO] NORMAL | ROWS")
-            send(b":set rw\r", b"Write mode requires an established WAL database")
+            send(b":set rw\r", b"Enable write mode")
+            send(b"n", b"Cancelled")
             send(b"?", b"HELP | Press any key")
             send(b"x", b"[RO] NORMAL")
             start = len(collected)

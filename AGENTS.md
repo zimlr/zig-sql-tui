@@ -24,13 +24,16 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 
 - SQLite MUST be statically linked. Vendor `sqlite3.c` and its matching header, and compile the amalgamation in-tree.
 - NEVER link SQLite dynamically. Prefer static linking for other native dependencies where feasible.
-- Justify each dependency in writing before adding it. Remove unused dependencies and use `ReleaseSmall` with stripped symbols for release builds.
+- Justify each dependency in writing before adding it. Pin artifacts to SHA-256, or to a full commit where the platform requires one.
+- Use a version label when no digest or commit pin is available. Record each dependency's version, provenance, pin, and limitations.
+- Remove unused dependencies and use `ReleaseSmall` with stripped symbols for release builds.
 - Builds and application execution MUST work without internet access. Application code MUST NOT make network syscalls.
 - NEVER add telemetry, update checks, remote resources, or runtime downloads.
 
 # File access and security
 
-- The application MUST read and write only the explicitly opened database, its WAL and SHM sidecars, and its own config directory.
+- The application MUST read and write only the explicitly opened database, its WAL, SHM, and rollback-journal sidecars, and its own config directory.
+- Keep the default connection read-only. Require explicit confirmation before recovery modifies a database or its journal.
 - NEVER scan or traverse outside the opened database directory without explicit user action. Explicit action does not expand the file-access allowlist.
 - Enforce the allowlist across SQLite operations, including SQL, extensions, temporary storage, and path resolution. Keep SQLite temporary storage in memory.
 - Reject database attachment, extension loading, and file-producing SQL unless they can be confined to the allowlist.

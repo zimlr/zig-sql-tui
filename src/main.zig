@@ -2,16 +2,16 @@ const std = @import("std");
 
 const Db = opaque {};
 const Stmt = opaque {};
-extern fn app_open([*:0]const u8, *?*Db, [*]u8, usize) c_int;
-extern fn app_open_wal([*:0]const u8, c_int, *?*Db, [*]u8, usize) c_int;
-extern fn app_reopen_wal(*Db, c_int, *?*Db, [*]u8, usize) c_int;
+extern fn app_open_live([*:0]const u8, c_int, *?*Db, [*]u8, usize) c_int;
+extern fn app_reopen_live(*Db, c_int, *?*Db, [*]u8, usize) c_int;
 extern fn app_live_close() void;
+extern fn app_recover([*:0]const u8, [*]u8, usize) c_int;
 extern fn app_execute_write(*Db, [*:0]const u8, [*]u8, usize) c_int;
-extern fn app_prepare_tables(*Db, *?*Stmt) c_int;
-extern fn app_prepare_rows(*Db, [*:0]const u8, *?*Stmt) c_int;
-extern fn app_prepare_editable_rows(*Db, [*:0]const u8, *?*Stmt, *c_int) c_int;
+extern fn app_prepare_tables(*Db, i64, *?*Stmt) c_int;
+extern fn app_prepare_rows(*Db, [*:0]const u8, i64, *?*Stmt) c_int;
+extern fn app_prepare_editable_rows(*Db, [*:0]const u8, i64, *?*Stmt, *c_int) c_int;
 extern fn app_data_version(*Db, c_int, *c_int) c_int;
-extern fn app_update_cell(*Db, [*:0]const u8, [*:0]const u8, i64, [*:0]const u8, c_int, c_int, [*]u8, usize) c_int;
+extern fn app_update_cell(*Db, [*:0]const u8, [*:0]const u8, i64, c_int, i64, c_int, [*:0]const u8, c_int, c_int, [*]u8, usize) c_int;
 extern fn app_prepare_statement(*Db, [*:0]const u8, *?*Stmt, c_int, *c_int) c_int;
 extern fn app_query_begin(*Db) void;
 extern fn app_query_end(*Db) void;
@@ -22,6 +22,7 @@ extern fn sqlite3_column_count(*Stmt) c_int;
 extern fn sqlite3_column_int64(*Stmt, c_int) i64;
 extern fn sqlite3_column_name(*Stmt, c_int) ?[*:0]const u8;
 extern fn sqlite3_column_text(*Stmt, c_int) ?[*]const u8;
+extern fn sqlite3_column_blob(*Stmt, c_int) ?[*]const u8;
 extern fn sqlite3_column_bytes(*Stmt, c_int) c_int;
 extern fn sqlite3_column_type(*Stmt, c_int) c_int;
 extern fn sqlite3_errmsg(*Db) [*:0]const u8;
@@ -37,62 +38,81 @@ const sqlite_done = 101;
 const max_tables = 128;
 const max_rows = 500;
 const max_columns = 32;
-const Text = struct {
-    data: [256]u8 = @splat(0),
-    len: usize = 0,
-    truncated: bool = false,
+const Text = TextBuffer(256);
+const InputText = TextBuffer(4097);
+const NameText = TextBuffer(4097);
+fn TextBuffer(comptime capacity: usize) type {
+    return struct {
+        data: [capacity]u8 = @splat(0),
+        len: usize = 0,
+        truncated: bool = false,
 
-    fn set(self: *Text, value: []const u8) void {
-        self.len = @min(value.len, self.data.len - 1);
-        self.truncated = value.len > self.len;
-        @memcpy(self.data[0..self.len], value[0..self.len]);
-        self.data[self.len] = 0;
-    }
-    fn slice(self: *const Text) []const u8 {
-        return self.data[0..self.len];
-    }
-    fn cstr(self: *const Text) [*:0]const u8 {
-        return @ptrCast(self.data[0..].ptr);
-    }
-    fn append(self: *Text, value: []const u8) void {
-        const n = @min(value.len, self.data.len - 1 - self.len);
-        @memcpy(self.data[self.len..][0..n], value[0..n]);
-        if (n < value.len) self.truncated = true;
-        self.len += n;
-        self.data[self.len] = 0;
-    }
-};
+        fn set(self: *@This(), value: []const u8) void {
+            self.len = @min(value.len, self.data.len - 1);
+            self.truncated = value.len > self.len;
+            @memcpy(self.data[0..self.len], value[0..self.len]);
+            self.data[self.len] = 0;
+        }
+        fn slice(self: *const @This()) []const u8 {
+            return self.data[0..self.len];
+        }
+        fn cstr(self: *const @This()) [*:0]const u8 {
+            return @ptrCast(self.data[0..].ptr);
+        }
+        fn append(self: *@This(), value: []const u8) void {
+            const n = @min(value.len, self.data.len - 1 - self.len);
+            @memcpy(self.data[self.len..][0..n], value[0..n]);
+            if (n < value.len) self.truncated = true;
+            self.len += n;
+            self.data[self.len] = 0;
+        }
+    };
+}
 
 const Focus = enum { tables, rows, details };
 const Mode = enum { normal, command, search, insert, cell };
 const Pending = enum { none, switch_write, sql_write, cell_write };
 const App = struct {
     db: *Db,
-    live_wal: bool = false,
     writable: bool = false,
     pending: Pending = .none,
     path: Text = .{},
-    tables: [max_tables]Text = @splat(.{}),
+    tables: [max_tables]NameText = @splat(.{}),
     table_count: usize = 0,
     table_index: usize = 0,
+    table_offset: usize = 0,
+    tables_next: bool = false,
+    row_offset: usize = 0,
+    rows_next: bool = false,
+    column_offset: usize = 0,
+    total_columns: usize = 0,
     cells: [max_rows][max_columns]Text = @splat(@splat(.{})),
     editable_cells: [max_rows][max_columns]bool = @splat(@splat(false)),
     cell_types: [max_rows][max_columns]u8 = @splat(@splat(0)),
     rowids: [max_rows]i64 = @splat(0),
     row_editable: bool = false,
+    row_key_kind: c_int = 0,
     row_version: c_int = 0,
     columns: [max_columns]Text = @splat(.{}),
     column_count: usize = 0,
     column_index: usize = 0,
     detail_offset: usize = 0,
     detail_width: usize = 1,
+    detail: ?[]u8 = null,
+    detail_attempted: bool = false,
+    generation: usize = 0,
+    detail_generation: usize = 0,
+    detail_row: usize = 0,
+    detail_column: usize = 0,
     row_count: usize = 0,
     row_index: usize = 0,
     message: Text = .{},
-    input: Text = .{},
-    search: Text = .{},
-    query: Text = .{},
-    cell_value: Text = .{},
+    input: InputText = .{},
+    search: InputText = .{},
+    query: InputText = .{},
+    active_query: InputText = .{},
+    cell_value: InputText = .{},
+    cell_update_type: c_int = 0,
     query_results: bool = false,
     focus: Focus = .tables,
     mode: Mode = .normal,
@@ -114,11 +134,15 @@ const App = struct {
         app_query_begin(self.db);
         defer app_query_end(self.db);
         var stmt: ?*Stmt = null;
-        if (app_prepare_tables(self.db, &stmt) != sqlite_ok or stmt == null) {
+        self.table_count = 0;
+        self.table_index = 0;
+        self.tables_next = false;
+        if (app_prepare_tables(self.db, @intCast(self.table_offset), &stmt) != sqlite_ok or stmt == null) {
             self.setError();
             return;
         }
         defer _ = sqlite3_finalize(stmt.?);
+        var examined: usize = 0;
         while (true) {
             const rc = sqlite3_step(stmt.?);
             if (rc == sqlite_done) break;
@@ -126,18 +150,19 @@ const App = struct {
                 self.setError();
                 break;
             }
+            if (examined == max_tables) {
+                self.tables_next = true;
+                break;
+            }
+            examined += 1;
             const ptr = sqlite3_column_text(stmt.?, 0) orelse {
                 self.setError();
                 break;
             };
             const n: usize = @intCast(@max(0, sqlite3_column_bytes(stmt.?, 0)));
-            if (n >= 256 or std.mem.indexOfScalar(u8, ptr[0..n], 0) != null) {
+            if (n >= self.tables[0].data.len or std.mem.indexOfScalar(u8, ptr[0..n], 0) != null) {
                 self.message.set("A table name was skipped because it is too long or contains NUL");
                 continue;
-            }
-            if (self.table_count == max_tables) {
-                self.message.set("Table list limited to 128 entries");
-                break;
             }
             self.tables[self.table_count].set(ptr[0..n]);
             self.table_count += 1;
@@ -157,13 +182,14 @@ const App = struct {
         const version_ok = self.writable and app_data_version(self.db, 1, &before) == sqlite_ok;
         app_query_begin(self.db);
         defer app_query_end(self.db);
-        const rc = if (self.writable) app_prepare_editable_rows(self.db, self.tables[self.table_index].cstr(), &stmt, &has_rowid) else app_prepare_rows(self.db, self.tables[self.table_index].cstr(), &stmt);
+        const rc = if (self.writable) app_prepare_editable_rows(self.db, self.tables[self.table_index].cstr(), @intCast(self.row_offset), &stmt, &has_rowid) else app_prepare_rows(self.db, self.tables[self.table_index].cstr(), @intCast(self.row_offset), &stmt);
         if (rc != sqlite_ok or stmt == null) {
             self.setError();
             return;
         }
+        self.row_key_kind = has_rowid;
         self.row_editable = has_rowid != 0 and version_ok;
-        self.readRows(stmt.?, has_rowid != 0);
+        self.readRows(stmt.?, has_rowid == 1);
         _ = sqlite3_finalize(stmt.?);
         if (self.row_editable) {
             var after: c_int = 0;
@@ -193,25 +219,31 @@ const App = struct {
             self.message.set("Execute this database write? y/n");
             return;
         }
+        self.active_query.set(self.query.slice());
         self.query_results = true;
+        self.row_offset = 0;
+        self.column_offset = 0;
         self.row_editable = false;
         self.focus = .rows;
-        self.message.set(if (self.writable) "Query results, limited to 500 rows" else "Read-only query results, limited to 500 rows");
+        self.message.set(if (self.writable) "Query results" else "Read-only query results");
         self.readRows(stmt.?, false);
     }
 
     fn readRows(self: *App, stmt: *Stmt, has_rowid: bool) void {
+        self.generation +%= 1;
         self.row_count = 0;
         self.row_index = 0;
         self.column_index = 0;
         self.detail_offset = 0;
         const offset: usize = if (has_rowid) 1 else 0;
         const ncols: usize = @intCast(@max(0, sqlite3_column_count(stmt) - @as(c_int, @intCast(offset))));
-        self.column_count = @min(ncols, max_columns);
-        if (ncols > max_columns) self.message.set("Only the first 32 columns are shown");
+        self.total_columns = ncols;
+        if (self.column_offset >= ncols) self.column_offset = 0;
+        self.column_count = @min(ncols - self.column_offset, max_columns);
+        self.rows_next = false;
         for (0..self.column_count) |i| {
             self.columns[i].set("");
-            if (sqlite3_column_name(stmt, @intCast(i + offset))) |name| self.columns[i].set(std.mem.span(name));
+            if (sqlite3_column_name(stmt, @intCast(i + offset + self.column_offset))) |name| self.columns[i].set(std.mem.span(name));
         }
         while (self.row_count < max_rows) {
             const rc = sqlite3_step(stmt);
@@ -224,7 +256,7 @@ const App = struct {
                 if (sqlite3_column_type(stmt, 0) != 1) self.row_editable = false else self.rowids[self.row_count] = sqlite3_column_int64(stmt, 0);
             }
             for (0..self.column_count) |i| {
-                const col: c_int = @intCast(i + offset);
+                const col: c_int = @intCast(i + offset + self.column_offset);
                 const cell = &self.cells[self.row_count][i];
                 const cell_type = sqlite3_column_type(stmt, col);
                 self.cell_types[self.row_count][i] = @intCast(cell_type);
@@ -241,8 +273,8 @@ const App = struct {
                     self.setError();
                     return;
                 }
-                var editable = cell_type >= 1 and cell_type <= 3 and !cell.truncated and !self.columns[i].truncated;
-                for (cell.slice()) |ch| if (ch < 32 or ch >= 127) {
+                var editable = cell_type >= 1 and cell_type <= 3 and !cell.truncated and !self.columns[i].truncated and std.unicode.utf8ValidateSlice(cell.slice());
+                for (cell.slice()) |ch| if (ch == 0) {
                     editable = false;
                     break;
                 };
@@ -251,8 +283,155 @@ const App = struct {
             self.row_count += 1;
         }
         if (self.row_count == max_rows) {
-            self.message.set(if (ncols > max_columns) "Showing at most 500 rows and 32 columns" else "Showing at most 500 rows");
+            const rc = sqlite3_step(stmt);
+            if (rc == sqlite_row) self.rows_next = true else if (rc != sqlite_done) self.setError();
         }
+    }
+
+    fn clearDetail(self: *App) void {
+        if (self.detail) |detail| std.heap.page_allocator.free(detail);
+        self.detail = null;
+        self.detail_attempted = false;
+    }
+
+    // Re-read only the selected truncated value, keeping the grid bounded.
+    fn refreshDetail(self: *App) void {
+        if (self.row_count == 0 or self.column_count == 0) {
+            self.clearDetail();
+            return;
+        }
+        const cell = &self.cells[self.row_index][self.column_index];
+        if (self.detail_attempted and self.detail_generation == self.generation and
+            self.detail_row == self.row_index and self.detail_column == self.column_index) return;
+        self.clearDetail();
+        self.detail_attempted = true;
+        self.detail_generation = self.generation;
+        self.detail_row = self.row_index;
+        self.detail_column = self.column_index;
+        if (!cell.truncated or self.cell_types[self.row_index][self.column_index] != 3) return;
+        var before: c_int = 0;
+        if (self.row_editable and (app_data_version(self.db, 1, &before) != sqlite_ok or before != self.row_version)) {
+            self.row_editable = false;
+            self.message.set("Database changed. Reload before editing");
+            return;
+        }
+        var stmt: ?*Stmt = null;
+        var is_write: c_int = 0;
+        var key_kind: c_int = 0;
+        app_query_begin(self.db);
+        defer app_query_end(self.db);
+        const rc = if (self.query_results)
+            app_prepare_statement(self.db, self.active_query.cstr(), &stmt, 0, &is_write)
+        else if (self.row_key_kind == 2)
+            app_prepare_editable_rows(self.db, self.tables[self.table_index].cstr(), @intCast(self.row_offset), &stmt, &key_kind)
+        else
+            app_prepare_rows(self.db, self.tables[self.table_index].cstr(), @intCast(self.row_offset), &stmt);
+        if (rc != sqlite_ok or stmt == null) return;
+        defer _ = sqlite3_finalize(stmt.?);
+        if (self.row_key_kind == 2 and !self.query_results and key_kind != 2) return;
+        const skip = self.row_index + if (self.query_results) self.row_offset else @as(usize, 0);
+        for (0..skip + 1) |_| if (sqlite3_step(stmt.?) != sqlite_row) return;
+        const col: c_int = @intCast(self.column_offset + self.column_index);
+        if (sqlite3_column_type(stmt.?, col) != 3) return;
+        const ptr = sqlite3_column_text(stmt.?, col) orelse return;
+        const len: usize = @intCast(@max(0, sqlite3_column_bytes(stmt.?, col)));
+        if (len < cell.len or !std.mem.eql(u8, ptr[0..cell.len], cell.slice())) return;
+        const copy = std.heap.page_allocator.alloc(u8, len) catch {
+            self.message.set("Cannot allocate full cell value");
+            return;
+        };
+        @memcpy(copy, ptr[0..len]);
+        if (self.row_editable) {
+            var after: c_int = 0;
+            if (app_data_version(self.db, 1, &after) != sqlite_ok or after != self.row_version) {
+                std.heap.page_allocator.free(copy);
+                self.row_editable = false;
+                self.message.set("Database changed. Reload before editing");
+                return;
+            }
+        }
+        self.detail = copy;
+        self.detail_generation = self.generation;
+        self.detail_row = self.row_index;
+        self.detail_column = self.column_index;
+    }
+
+    // Query pages are re-executed. No write statement is permitted here.
+    fn loadQueryPage(self: *App) void {
+        var stmt: ?*Stmt = null;
+        var is_write: c_int = 0;
+        app_query_begin(self.db);
+        defer app_query_end(self.db);
+        if (app_prepare_statement(self.db, self.active_query.cstr(), &stmt, 0, &is_write) != sqlite_ok or stmt == null) {
+            self.setError();
+            return;
+        }
+        defer _ = sqlite3_finalize(stmt.?);
+        for (0..self.row_offset) |_| {
+            const rc = sqlite3_step(stmt.?);
+            if (rc == sqlite_done) {
+                self.row_count = 0;
+                self.rows_next = false;
+                return;
+            }
+            if (rc != sqlite_row) {
+                self.setError();
+                return;
+            }
+        }
+        self.readRows(stmt.?, false);
+    }
+
+    fn page(self: *App, forward: bool) void {
+        if (self.focus == .details) {
+            self.message.set("Select tables or rows to change pages");
+            return;
+        }
+        if (self.focus == .tables) {
+            if (forward) {
+                if (!self.tables_next or self.table_offset > std.math.maxInt(i64) - max_tables) return;
+                self.table_offset += max_tables;
+            } else {
+                if (self.table_offset == 0) return;
+                self.table_offset -= max_tables;
+            }
+            self.row_offset = 0;
+            self.column_offset = 0;
+            self.row_count = 0;
+            self.column_count = 0;
+            self.total_columns = 0;
+            self.query_results = false;
+            self.loadTables();
+            self.message.set("Table page changed");
+            return;
+        }
+        if (forward) {
+            if (!self.rows_next or self.row_offset > std.math.maxInt(i64) - max_rows) return;
+            self.row_offset += max_rows;
+        } else {
+            if (self.row_offset == 0) return;
+            self.row_offset -= max_rows;
+        }
+        if (self.query_results) self.loadQueryPage() else self.loadRows();
+        if (!self.failed) self.message.set("Row page changed");
+    }
+
+    fn pageColumns(self: *App, forward: bool) void {
+        if (self.focus != .rows) {
+            self.message.set("Select rows to change column pages");
+            return;
+        }
+        if (forward) {
+            if (self.column_offset + max_columns >= self.total_columns) return;
+            self.column_offset += max_columns;
+        } else {
+            if (self.column_offset == 0) return;
+            self.column_offset -= max_columns;
+        }
+        const selected = self.row_index;
+        if (self.query_results) self.loadQueryPage() else self.loadRows();
+        if (self.row_count > 0) self.row_index = @min(selected, self.row_count - 1);
+        if (!self.failed) self.message.set("Column page changed");
     }
 
     fn moveColumn(self: *App, delta: isize) void {
@@ -265,9 +444,11 @@ const App = struct {
     fn move(self: *App, delta: isize) void {
         if (self.focus == .details) {
             if (self.row_count == 0 or self.column_count == 0) return;
-            const len = self.cells[self.row_index][self.column_index].len;
+            const len = if (self.detail) |detail| detail.len else self.cells[self.row_index][self.column_index].len;
             const next = @as(isize, @intCast(self.detail_offset)) + delta * @as(isize, @intCast(self.detail_width));
             self.detail_offset = @intCast(@max(0, @min(next, @as(isize, @intCast(if (len == 0) 0 else len - 1)))));
+            const text = if (self.detail) |detail| detail else self.cells[self.row_index][self.column_index].slice();
+            while (self.detail_offset > 0 and self.detail_offset < text.len and text[self.detail_offset] & 0xc0 == 0x80) self.detail_offset -= 1;
             return;
         }
         const total = if (self.focus == .tables) self.table_count else self.row_count;
@@ -277,7 +458,11 @@ const App = struct {
         const previous = index.*;
         index.* = @intCast(@max(0, @min(next, @as(isize, @intCast(total - 1)))));
         if (previous != index.*) self.detail_offset = 0;
-        if (self.focus == .tables and previous != index.*) self.loadRows();
+        if (self.focus == .tables and previous != index.*) {
+            self.row_offset = 0;
+            self.column_offset = 0;
+            self.loadRows();
+        }
     }
 
     fn find(self: *App, backwards: bool) void {
@@ -307,6 +492,8 @@ const App = struct {
             if (found) {
                 if (self.focus == .tables) {
                     self.table_index = idx;
+                    self.row_offset = 0;
+                    self.column_offset = 0;
                     self.loadRows();
                 } else {
                     self.row_index = idx;
@@ -322,6 +509,8 @@ const App = struct {
 
     fn reload(self: *App) void {
         const selected = self.table_index;
+        self.row_offset = 0;
+        self.column_offset = 0;
         self.table_count = 0;
         self.table_index = 0;
         self.row_count = 0;
@@ -337,11 +526,7 @@ const App = struct {
     fn switchAccess(self: *App, writable: bool) void {
         var next: ?*Db = null;
         var err: [256]u8 = @splat(0);
-        if (!self.live_wal) {
-            self.message.set("Write mode requires an established WAL database");
-            return;
-        }
-        if (app_reopen_wal(self.db, if (writable) 1 else 0, &next, &err, err.len) == 0 or next == null) {
+        if (app_reopen_live(self.db, if (writable) 1 else 0, &next, &err, err.len) == 0 or next == null) {
             self.message.set(std.mem.sliceTo(&err, 0));
             return;
         }
@@ -369,7 +554,7 @@ const App = struct {
             },
             .cell_write => {
                 var err: [256]u8 = @splat(0);
-                const ok = app_update_cell(self.db, self.tables[self.table_index].cstr(), self.columns[self.column_index].cstr(), self.rowids[self.row_index], self.cell_value.cstr(), self.cell_types[self.row_index][self.column_index], self.row_version, &err, err.len) != 0;
+                const ok = app_update_cell(self.db, self.tables[self.table_index].cstr(), self.columns[self.column_index].cstr(), self.rowids[self.row_index], self.row_key_kind, @intCast(self.row_offset), @intCast(self.row_index), self.cell_value.cstr(), self.cell_update_type, self.row_version, &err, err.len) != 0;
                 self.reload();
                 if (ok) {
                     if (!self.failed) self.message.set("Cell update committed");
@@ -384,14 +569,74 @@ const App = struct {
         if (std.mem.eql(u8, cmd, "q") or std.mem.eql(u8, cmd, "quit")) self.running = false else if (std.mem.eql(u8, cmd, "help")) self.help = true else if (std.mem.eql(u8, cmd, "reload")) {
             self.reload();
             if (!self.failed) self.message.set("Database reloaded");
+        } else if (std.mem.eql(u8, cmd, "null")) {
+            if (!self.writable or self.query_results or !self.row_editable or self.focus == .tables or self.row_count == 0 or self.column_count == 0 or self.columns[self.column_index].truncated) {
+                self.message.set("Select an editable cell in write mode");
+            } else {
+                self.cell_value.set("");
+                self.cell_update_type = 5;
+                self.pending = .cell_write;
+                self.message.set("Set selected cell to NULL? y/n");
+            }
         } else if (std.mem.eql(u8, cmd, "set ro") or std.mem.eql(u8, cmd, "set readonly")) {
             if (self.writable) self.switchAccess(false) else self.message.set("Read-only mode is already active");
         } else if (std.mem.eql(u8, cmd, "set rw") or std.mem.eql(u8, cmd, "set write")) {
-            if (self.writable) self.message.set("Write mode is already active") else if (!self.live_wal) self.message.set("Write mode requires an established WAL database") else {
+            if (self.writable) self.message.set("Write mode is already active") else {
                 self.pending = .switch_write;
-                self.message.set("Enable write mode? y/n");
+                self.message.set("Enable write mode and recovery? y/n");
             }
         } else self.message.set("Unknown command. Press ? for help");
+    }
+
+    fn loadBlobInput(self: *App) bool {
+        var version: c_int = 0;
+        if (app_data_version(self.db, 1, &version) != sqlite_ok or version != self.row_version) {
+            self.message.set("Database changed. Reload before editing");
+            return false;
+        }
+        var stmt: ?*Stmt = null;
+        app_query_begin(self.db);
+        defer app_query_end(self.db);
+        var key_kind: c_int = 0;
+        const rc = if (self.row_key_kind == 2)
+            app_prepare_editable_rows(self.db, self.tables[self.table_index].cstr(), @intCast(self.row_offset), &stmt, &key_kind)
+        else
+            app_prepare_rows(self.db, self.tables[self.table_index].cstr(), @intCast(self.row_offset), &stmt);
+        if (rc != sqlite_ok or stmt == null or (self.row_key_kind == 2 and key_kind != 2)) {
+            if (stmt) |prepared| _ = sqlite3_finalize(prepared);
+            self.message.set("Cannot read BLOB");
+            return false;
+        }
+        defer _ = sqlite3_finalize(stmt.?);
+        for (0..self.row_index + 1) |_| if (sqlite3_step(stmt.?) != sqlite_row) {
+            self.message.set("Cannot read BLOB");
+            return false;
+        };
+        const col: c_int = @intCast(self.column_offset + self.column_index);
+        if (sqlite3_column_type(stmt.?, col) != 4) {
+            self.message.set("Cell changed. Reload before editing");
+            return false;
+        }
+        const len: usize = @intCast(@max(0, sqlite3_column_bytes(stmt.?, col)));
+        if (len > (self.input.data.len - 1) / 2) {
+            self.message.set("BLOB exceeds the hex editor limit");
+            return false;
+        }
+        const ptr = sqlite3_column_blob(stmt.?, col);
+        if (len > 0 and ptr == null) {
+            self.message.set("Cannot read BLOB");
+            return false;
+        }
+        self.input.set("");
+        const hex = "0123456789ABCDEF";
+        if (ptr) |bytes| for (bytes[0..len]) |byte| {
+            self.input.append(&.{ hex[byte >> 4], hex[byte & 15] });
+        };
+        if (app_data_version(self.db, 1, &version) != sqlite_ok or version != self.row_version) {
+            self.message.set("Database changed. Reload before editing");
+            return false;
+        }
+        return true;
     }
 
     fn editCell(self: *App) void {
@@ -400,11 +645,40 @@ const App = struct {
             return;
         }
         if (self.query_results or !self.row_editable or self.row_count == 0 or self.column_count == 0 or self.focus == .tables) {
-            self.message.set("Select a cell in an ordinary rowid table");
+            self.message.set("Select an editable table cell");
+            return;
+        }
+        self.cell_update_type = self.cell_types[self.row_index][self.column_index];
+        if (self.cell_update_type == 4 and !self.columns[self.column_index].truncated) {
+            if (self.loadBlobInput()) self.mode = .cell;
+            return;
+        }
+        if (self.cell_update_type == 5 and !self.columns[self.column_index].truncated) {
+            self.cell_update_type = 3;
+            self.mode = .cell;
+            self.input.set("");
+            self.message.set("Enter text to replace NULL");
             return;
         }
         if (!self.editable_cells[self.row_index][self.column_index]) {
-            self.message.set("Cell requires SQL editing: NULL, BLOB, non-ASCII, or truncated value");
+            if (self.detail) |detail| {
+                if (self.cell_types[self.row_index][self.column_index] == 3 and
+                    !self.columns[self.column_index].truncated and detail.len < self.input.data.len)
+                {
+                    if (!std.unicode.utf8ValidateSlice(detail)) {
+                        self.message.set("Cell requires SQL editing");
+                        return;
+                    }
+                    for (detail) |ch| if (ch == 0) {
+                        self.message.set("Cell requires SQL editing");
+                        return;
+                    };
+                    self.mode = .cell;
+                    self.input.set(detail);
+                    return;
+                }
+            }
+            self.message.set("Cell requires SQL editing: NUL, invalid UTF-8, or long value");
             return;
         }
         self.mode = .cell;
@@ -417,6 +691,14 @@ const App = struct {
             return;
         }
         if (ch == 10 or ch == 13) {
+            if (self.input.truncated) {
+                self.message.set("Input limit reached. Shorten or clear input");
+                return;
+            }
+            if (!std.unicode.utf8ValidateSlice(self.input.slice())) {
+                self.message.set("Input is not valid UTF-8");
+                return;
+            }
             switch (self.mode) {
                 .command => self.command(),
                 .search => {
@@ -437,9 +719,11 @@ const App = struct {
         } else if (ch == 127 or ch == 8) {
             if (self.input.len > 0) {
                 self.input.len -= 1;
+                while (self.input.len > 0 and self.input.data[self.input.len] & 0xc0 == 0x80) self.input.len -= 1;
                 self.input.data[self.input.len] = 0;
+                self.input.truncated = false;
             }
-        } else if (ch >= 32 and ch < 127 and self.input.len < 255) {
+        } else if (ch >= 32) {
             self.input.append(&.{ch});
         }
     }
@@ -498,6 +782,10 @@ const App = struct {
             'e' => self.editCell(),
             'n' => self.find(false),
             'N' => self.find(true),
+            '[' => self.page(false),
+            ']' => self.page(true),
+            '<' => self.pageColumns(false),
+            '>' => self.pageColumns(true),
             'j' => self.move(count),
             'k' => self.move(-count),
             'G' => {
@@ -535,15 +823,53 @@ fn output(fd: c_int, bytes: []const u8) void {
         offset += @intCast(n);
     }
 }
-fn printAt(row: usize, col: usize, width: usize, text: []const u8) void {
-    if (width == 0) return;
+// Render untrusted text as ASCII. Escape non-ASCII code points and invalid bytes.
+fn printSafeAt(row: usize, col: usize, width: usize, text: []const u8) usize {
+    if (width == 0) return 0;
     var escape: [40]u8 = undefined;
-    output(1, std.fmt.bufPrint(&escape, "\x1b[{d};{d}H", .{ row, col }) catch return);
-    var sanitized: [512]u8 = undefined;
-    const n = @min(@min(width, text.len), sanitized.len);
-    for (text[0..n], 0..) |c, i| sanitized[i] = if (c >= 32 and c < 127) c else '?';
-    output(1, sanitized[0..n]);
+    output(1, std.fmt.bufPrint(&escape, "\x1b[{d};{d}H", .{ row, col }) catch return 0);
+    var rendered: [512]u8 = undefined;
+    var used: usize = 0;
+    var consumed: usize = 0;
+    const limit = @min(width, rendered.len);
+    while (consumed < text.len and used < limit) {
+        const ch = text[consumed];
+        if (ch >= 32 and ch < 127) {
+            rendered[used] = ch;
+            used += 1;
+            consumed += 1;
+            continue;
+        }
+        var encoded: [16]u8 = undefined;
+        const seq_len: usize = std.unicode.utf8ByteSequenceLength(ch) catch 1;
+        const codepoint = if (seq_len > 1 and consumed + seq_len <= text.len)
+            std.unicode.utf8Decode(text[consumed..][0..seq_len]) catch null
+        else
+            null;
+        const token = if (codepoint) |cp|
+            std.fmt.bufPrint(&encoded, "\\u{{{X}}}", .{cp}) catch unreachable
+        else
+            std.fmt.bufPrint(&encoded, "\\x{X:0>2}", .{ch}) catch unreachable;
+        if (token.len > limit - used) {
+            if (used == 0) {
+                rendered[used] = '?';
+                used += 1;
+                consumed += if (codepoint != null) seq_len else 1;
+            }
+            break;
+        }
+        @memcpy(rendered[used..][0..token.len], token);
+        used += token.len;
+        consumed += if (codepoint != null) seq_len else 1;
+    }
+    output(1, rendered[0..used]);
+    return consumed;
 }
+
+fn printAt(row: usize, col: usize, width: usize, text: []const u8) void {
+    _ = printSafeAt(row, col, width, text);
+}
+
 fn gridLine(a: *App, row: ?usize) Text {
     var result: Text = .{};
     for (a.column_index..a.column_count) |i| {
@@ -570,7 +896,7 @@ fn printItems(a: *App, start_col: usize, width: usize, is_tables: bool) void {
         const grid = if (is_tables) Text{} else gridLine(a, i);
         const text = if (is_tables) a.tables[i].slice() else grid.slice();
         const prefix: []const u8 = if (selected == i and ((is_tables and a.focus == .tables) or (!is_tables and a.focus == .rows))) "> " else "  ";
-        const formatted = std.fmt.bufPrint(&line, "{s}{s}", .{ prefix, text }) catch continue;
+        const formatted = std.fmt.bufPrint(&line, "{s}{s}", .{ prefix, text[0..@min(text.len, width)] }) catch continue;
         printAt(5 + i - first, start_col, width, formatted);
     }
 }
@@ -579,21 +905,21 @@ fn printDetails(a: *App, col: usize, width: usize) void {
     a.detail_width = @max(1, width);
     var buffer: [512]u8 = undefined;
     printAt(3, col, width, if (a.focus == .details) "> DETAIL / SQL" else "DETAIL / SQL");
-    const position = std.fmt.bufPrint(&buffer, "Row {d}/{d}  Column {d}/{d}", .{ if (a.row_count == 0) @as(usize, 0) else a.row_index + 1, a.row_count, if (a.column_count == 0) @as(usize, 0) else a.column_index + 1, a.column_count }) catch "Selection";
+    const position = std.fmt.bufPrint(&buffer, "Row {d}  Column {d}/{d}", .{ if (a.row_count == 0) @as(usize, 0) else a.row_offset + a.row_index + 1, if (a.column_count == 0) @as(usize, 0) else a.column_offset + a.column_index + 1, a.total_columns }) catch "Selection";
     printAt(4, col, width, position);
     if (a.row_count > 0 and a.column_count > 0) {
         printAt(5, col, width, a.columns[a.column_index].slice());
         const cell = &a.cells[a.row_index][a.column_index];
-        const text = cell.slice();
+        const text = if (a.detail) |detail| detail else cell.slice();
         var offset = @min(a.detail_offset, text.len);
         var row: usize = 6;
         while (offset < text.len and row < a.height - 5 and width > 0) : (row += 1) {
-            const n = @min(width, text.len - offset);
-            printAt(row, col, width, text[offset..][0..n]);
+            const n = printSafeAt(row, col, width, text[offset..]);
+            if (n == 0) break;
             offset += n;
         }
-        if (cell.truncated) {
-            printAt(a.height - 5, col, width, "Value truncated at 255 bytes");
+        if (cell.truncated and a.detail == null) {
+            printAt(a.height - 5, col, width, "Full value unavailable");
         } else if (offset < text.len) {
             printAt(a.height - 5, col, width, "More below");
         }
@@ -633,8 +959,8 @@ fn draw(a: *App) void {
         printAt(6, 1, a.cols, "gg/G: first/last   5gg/5G: row five");
         printAt(7, 1, a.cols, "/: search   n/N: next/previous match");
         printAt(8, 1, a.cols, "i: SQL   e: edit cell   Esc: cancel");
-        printAt(9, 1, a.cols, ":set rw/ro: access   :reload   q: quit");
-        printAt(10, 1, a.cols, "Enter: submit   Ctrl-U: clear input");
+        printAt(9, 1, a.cols, ":set rw/ro  :null  :reload  q: quit");
+        printAt(10, 1, a.cols, "[/]: page tables or rows   </>: columns");
         return;
     }
     const multi = a.cols > 60;
@@ -662,14 +988,15 @@ fn draw(a: *App) void {
         printAt(a.height - 1, 1, a.cols, "y: confirm  n/Esc: cancel");
     } else if (a.mode == .normal) {
         printAt(a.height - 2, 1, a.cols, a.message.slice());
-        printAt(a.height - 1, 1, a.cols, if (a.writable) "Tab: panel e: edit i: SQL ?: help q: quit" else "Tab: panel  i: SQL  ?: help  q: quit");
+        printAt(a.height - 1, 1, a.cols, if (a.writable) "Tab: panel []:page e:edit ?:help q:quit" else "Tab: panel []:page i:SQL ?:help q:quit");
     } else {
-        printAt(a.height - 2, 1, a.cols, "Enter: submit  Esc: cancel  Ctrl-U: clear");
+        const prompt: []const u8 = if (a.input.truncated) "Input limit reached. Shorten or clear input" else if (!std.unicode.utf8ValidateSlice(a.input.slice())) "Invalid UTF-8. Correct or clear input" else "Enter: submit  Esc: cancel  Ctrl-U: clear";
+        printAt(a.height - 2, 1, a.cols, prompt);
         const label: []const u8 = switch (a.mode) {
             .command => ":",
             .search => "/",
             .insert => "SQL> ",
-            .cell => "CELL> ",
+            .cell => if (a.cell_update_type == 4) "BLOB hex> " else "CELL> ",
             .normal => "",
         };
         const room = a.cols - label.len;
@@ -681,7 +1008,7 @@ fn draw(a: *App) void {
     }
 }
 
-fn confirmSnapshot(live_wal: bool) bool {
+fn confirmRecovery() bool {
     while (true) {
         var cols: u16 = 0;
         var rows: u16 = 0;
@@ -690,11 +1017,9 @@ fn confirmSnapshot(live_wal: bool) bool {
         if (cols < 40 or rows < 12) {
             printAt(1, 1, cols, "Resize terminal to at least 40 x 12");
         } else {
-            printAt(1, 1, cols, if (live_wal) "[RO] CONFIRM | WAL database" else "[RO] CONFIRM | Database snapshot");
-            printAt(3, 1, cols, "Recovery journals are not checked.");
-            printAt(4, 1, cols, if (live_wal) "No rollback recovery may be pending." else "Open only a cleanly closed database.");
-            if (live_wal) printAt(5, 1, cols, "Open only an established WAL database.");
-            printAt(7, 1, cols, "y: confirm   n/q/Esc: cancel");
+            printAt(1, 1, cols, "CONFIRM | Database recovery");
+            printAt(3, 1, cols, "Recovery modifies database and journal.");
+            printAt(5, 1, cols, "y: confirm   n/q/Esc: cancel");
         }
         while (true) {
             const keycode = app_terminal_read();
@@ -710,45 +1035,59 @@ pub fn main(init: std.process.Init.Minimal) u8 {
     var it = init.args.iterate();
     _ = it.next();
     const first = it.next() orelse {
-        output(2, "Usage: zig-sql-tui [--check] DATABASE\n");
+        output(2, "Usage: zig-sql-tui [--check | --recover] DATABASE\n");
         return 2;
     };
     const check = std.mem.eql(u8, first, "--check");
-    const path = if (check) it.next() orelse {
-        output(2, "Usage: zig-sql-tui [--check] DATABASE\n");
+    const recover = std.mem.eql(u8, first, "--recover");
+    const path = if (check or recover) it.next() orelse {
+        output(2, "Usage: zig-sql-tui [--check | --recover] DATABASE\n");
         return 2;
     } else first;
     if (it.next() != null) {
         output(2, "Only one database may be opened\n");
         return 2;
     }
-    var db: ?*Db = null;
     var err: [256]u8 = @splat(0);
-    var live_wal = false;
-    if (app_open(path.ptr, &db, &err, err.len) == 0 or db == null) {
-        if (std.mem.eql(u8, std.mem.sliceTo(&err, 0), "WAL databases are not supported by this read-only snapshot")) {
-            if (app_open_wal(path.ptr, 0, &db, &err, err.len) != 0 and db != null) live_wal = true;
+    if (recover) {
+        if (app_terminal_enter() == 0) {
+            output(2, "A terminal is required for recovery confirmation\n");
+            return 1;
         }
-        if (db == null) {
+        const accepted = confirmRecovery();
+        output(1, "\x1b[0m\x1b[?25h\x1b[2J\x1b[H");
+        app_terminal_leave();
+        if (!accepted) return 0;
+        if (app_recover(path.ptr, &err, err.len) == 0) {
             output(2, std.mem.sliceTo(&err, 0));
             output(2, "\n");
             return 1;
         }
+        output(1, "Recovery check completed\n");
+        return 0;
     }
-    defer if (live_wal) app_live_close();
-    app = .{ .db = db.?, .live_wal = live_wal };
+    var db: ?*Db = null;
+    if (app_open_live(path.ptr, 0, &db, &err, err.len) == 0 or db == null) {
+        output(2, std.mem.sliceTo(&err, 0));
+        output(2, "\n");
+        return 1;
+    }
+    defer app_live_close();
+    app = .{ .db = db.? };
     defer _ = sqlite3_close(app.db);
+    defer app.clearDetail();
     app.path.set(path);
-    app.message.set(if (live_wal) "Read-only WAL database. Recovery journals are not checked." else "Read-only snapshot. Open only cleanly closed rollback-mode databases.");
+    app.message.set("Read-only database");
     app.loadTables();
     if (app.failed) {
-        output(2, "Cannot read database schema or rows\n");
+        output(2, "Cannot read database: ");
+        output(2, app.message.slice());
+        output(2, "\nIf recovery is required, run --recover and confirm.\n");
         return 1;
     }
     if (check) {
-        output(2, if (live_wal) "Recovery journals are not checked. Open only established WAL databases.\n" else "Recovery journals are not checked. Open only cleanly closed databases.\n");
         var buf: [100]u8 = undefined;
-        output(1, std.fmt.bufPrint(&buf, "Read-only {s}: {d} tables\n", .{ if (live_wal) @as([]const u8, "WAL database") else "snapshot", app.table_count }) catch "Read-only database\n");
+        output(1, std.fmt.bufPrint(&buf, "Read-only database: {d}{s} tables\n", .{ app.table_count, if (app.tables_next) @as([]const u8, "+") else "" }) catch "Read-only database\n");
         return 0;
     }
     if (app_terminal_enter() == 0) {
@@ -759,7 +1098,7 @@ pub fn main(init: std.process.Init.Minimal) u8 {
         output(1, "\x1b[0m\x1b[?25h\x1b[2J\x1b[H");
         app_terminal_leave();
     }
-    if (!confirmSnapshot(live_wal)) return 0;
+    app.refreshDetail();
     draw(&app);
     while (app.running) {
         const keycode = app_terminal_read();
@@ -778,7 +1117,10 @@ pub fn main(init: std.process.Init.Minimal) u8 {
                 });
             }
         } else app.key(keycode);
-        if (app.running) draw(&app);
+        if (app.running) {
+            app.refreshDetail();
+            draw(&app);
+        }
     }
     return 0;
 }
