@@ -1,6 +1,6 @@
 # zig-sql-tui
 
-The application is a keyboard-first Zig terminal interface for SQLite databases. It opens databases read-only by default.
+The application is a keyboard-first Zig terminal interface for SQLite databases. It combines discoverable controls with composable Vim-like commands. It opens databases read-only by default.
 
 ## Database safety
 
@@ -29,7 +29,7 @@ mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp
 ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" TMPDIR="$PWD/.zig-cache/tmp" ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
 ```
 
-For Termux, replace the target with `aarch64-linux-musl`. Both builds compile the vendored SQLite amalgamation into the executable.
+Use `aarch64-linux-musl` to build a static aarch64 Linux executable. Both builds compile the vendored SQLite amalgamation into the executable. Native Termux compatibility is not yet verified. Android app seccomp policies may block the required `openat2` and `faccessat2` syscalls. The aarch64 executable is non-PIE, which may also conflict with Termux execution policies.
 
 ## Run
 

@@ -18,7 +18,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. The checks do not c
 - [x] Test SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths, not every possible operation.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
-- [ ] Run the aarch64 binary on an aarch64 Linux or Termux system. This environment has no aarch64 runtime or emulator.
+- [ ] Run the aarch64 binary on native aarch64 Linux. CI contains a separate ARM runner job. Its result must be checked in the workflow run.
+- [ ] Test the binary in the Termux app on Android. Linux ARM CI does not reproduce Android app seccomp or execution policies.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
 The prose checker covers project-owned Markdown and skips code spans and fenced code. It checks selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
