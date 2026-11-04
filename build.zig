@@ -4,6 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const strip = b.option(bool, "strip", "Strip debug symbols") orelse false;
+    const diagnostics = b.option(bool, "diagnostics", "Include the isolated database self-test") orelse false;
+    const options = b.addOptions();
+    options.addOption(bool, "diagnostics", diagnostics);
     const module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -11,7 +14,9 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
         .strip = strip,
     });
+    module.addOptions("build_options", options);
     module.addIncludePath(b.path("vendor/sqlite"));
+    if (diagnostics) module.addCSourceFile(.{ .file = b.path("src/diagnostics.c"), .flags = &.{} });
     module.addCSourceFiles(.{
         .files = &.{ "vendor/sqlite/sqlite3.c", "src/sandbox.c", "src/live.c" },
         .flags = &.{

@@ -161,6 +161,8 @@ jobs:
             cp ".zig-cache/release-candidates/zig-sql-tui-$arch-linux-musl" "$dir/zig-sql-tui"
             chmod +x "$dir/zig-sql-tui"
             cp README.md RELEASING.md DEPENDENCIES.md TESTING.md "$dir/"
+            mkdir -p "$dir/docs"
+            cp docs/building.md docs/limitations.md "$dir/docs/"
             mkdir -p "$dir/assets"
             cp assets/zig-sql-tui-logo.png "$dir/assets/zig-sql-tui-logo.png"
             cp vendor/sqlite/LICENSE.md "$dir/SQLITE-LICENSE.md"
@@ -168,7 +170,7 @@ jobs:
           done
           (cd .zig-cache/release && sha256sum zig-sql-tui-*.tar.gz > SHA256SUMS)
           cat > .zig-cache/tmp/release-notes.md <<'EOF'
-          The aarch64 artifact targets Linux. Native Termux compatibility remains unverified, and an Android seccomp policy may block required syscalls.
+          The aarch64 artifact targets Linux. Broader Termux compatibility remains unverified, and Android policies may cause additional failures.
           EOF
           args=()
           if [ "$policy" = 'prerelease=true' ]; then args+=(--prerelease); fi

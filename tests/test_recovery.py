@@ -24,10 +24,11 @@ def digest(path):
 
 
 class Terminal:
-    def __init__(self, *args):
+    def __init__(self, *args, preexec_fn=None):
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
-        self.proc = subprocess.Popen([EXE, *map(str, args)], stdin=slave, stdout=slave, stderr=slave)
+        self.proc = subprocess.Popen([EXE, *map(str, args)], stdin=slave, stdout=slave, stderr=slave,
+                                     preexec_fn=preexec_fn)
         os.close(slave)
         self.data = bytearray()
 

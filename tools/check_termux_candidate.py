@@ -23,21 +23,29 @@ class SockProgram(ctypes.Structure):
     _fields_ = [("length", ctypes.c_ushort), ("filter", ctypes.POINTER(SockFilter))]
 
 
-def trap_syscall(number):
+def trap_syscalls(numbers):
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    # Load the syscall number and trap it. Allow all other calls.
-    rules = (SockFilter * 4)(
-        SockFilter(0x20, 0, 0, 0),
-        SockFilter(0x15, 0, 1, number),
-        SockFilter(0x06, 0, 0, 0x00030000),
-        SockFilter(0x06, 0, 0, 0x7fff0000),
-    )
+    # Load the syscall number and trap each blocked call. Allow all others.
+    instructions = [SockFilter(0x20, 0, 0, 0)]
+    for number in numbers:
+        instructions.extend((SockFilter(0x15, 0, 1, number),
+                             SockFilter(0x06, 0, 0, 0x00030000)))
+    instructions.append(SockFilter(0x06, 0, 0, 0x7fff0000))
+    rules = (SockFilter * len(instructions))(*instructions)
     program = SockProgram(len(rules), rules)
     libc = ctypes.CDLL(None, use_errno=True)
     if libc.prctl(38, 1, 0, 0, 0) != 0:  # PR_SET_NO_NEW_PRIVS
         raise OSError(ctypes.get_errno(), "PR_SET_NO_NEW_PRIVS failed")
     if libc.prctl(22, 2, ctypes.byref(program), 0, 0) != 0:  # PR_SET_SECCOMP
         raise OSError(ctypes.get_errno(), "PR_SET_SECCOMP failed")
+
+
+def trap_syscall(number):
+    trap_syscalls((number,))
+
+
+# These Linux syscall numbers match x86_64 and aarch64.
+ANDROID_RESTRICTED = (437, 439, 452)  # openat2, faccessat2, fchmodat2
 
 
 def main():
@@ -77,18 +85,19 @@ def main():
             db.execute("CREATE TABLE data(value TEXT)")
             db.execute("INSERT INTO data VALUES ('sample')")
         probe = subprocess.run([binary, "--check", db_path], capture_output=True,
-                               preexec_fn=lambda: trap_syscall(437), timeout=20)
+                               preexec_fn=lambda: trap_syscalls(ANDROID_RESTRICTED), timeout=20)
         if probe.returncode == -signal.SIGSYS:
-            failures.append("Application terminated with SIGSYS when openat2 was trapped")
+            failures.append("Application terminated with SIGSYS under the restricted syscall filter")
         elif probe.returncode != 0:
-            failures.append(f"Application returned {probe.returncode} with openat2 trapped: {probe.stderr!r}")
+            failures.append(f"Application returned {probe.returncode} under the restricted syscall filter: {probe.stderr!r}")
         else:
-            print("Application opened the database with openat2 trapped")
+            print("Application opened the database with openat2, faccessat2 and fchmodat2 trapped")
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)
         if failures:
-            print("Termux app execution remains unverified. This probe does not emulate Android.", file=sys.stderr)
+            print("This probe does not emulate Android or verify Termux app execution.", file=sys.stderr)
             return 1
+        print("This probe does not emulate Android or verify Termux app execution.")
     return 0
 
 
