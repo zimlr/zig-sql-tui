@@ -27,7 +27,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41926400379](https://github.com/zimlr/zig-sql-tui/actions/runs/41926400379). Syscall tracing remains limited to x86_64.
 - [x] Package the aarch64 Linux executable with the pinned Termux build system. The packaging job passed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
 - [x] Open a database and display the TUI with the packaged ARM64 test binary in Termux on Android 13. The result is a user report.
-- [ ] Run the isolated diagnostics build in the Termux app on Android and report the results. Linux ARM CI does not reproduce Android app seccomp or execution policies.
+- [x] Run the isolated diagnostics build in Termux on Android 13. A user reported passing read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup.
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
