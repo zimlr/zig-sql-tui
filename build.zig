@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) void {
         },
     });
     const exe = b.addExecutable(.{ .name = "zig-sql-tui", .root_module = module });
+    exe.pie = true;
     b.installArtifact(exe);
 
     const run = b.addRunArtifact(exe);

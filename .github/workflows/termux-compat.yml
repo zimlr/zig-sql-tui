@@ -116,4 +116,13 @@ jobs:
           (cd .zig-cache/candidate && sha256sum -c SHA256SUMS)
           chmod +x .zig-cache/candidate/zig-sql-tui
           bash tools/fetch_termux_packages.sh
-          python3 tools/check_termux_candidate.py .zig-cache/termux-packages .zig-cache/candidate/zig-sql-tui
+          set +e
+          python3 tools/check_termux_candidate.py .zig-cache/termux-packages .zig-cache/candidate/zig-sql-tui > .zig-cache/probe.log 2>&1
+          result=$?
+          cat .zig-cache/probe.log
+          if [ "$result" -ne 0 ]; then
+            while IFS= read -r line; do
+              printf '::error::%s\n' "${line//%/%25}"
+            done < .zig-cache/probe.log
+            exit "$result"
+          fi
