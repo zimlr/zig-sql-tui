@@ -19,6 +19,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Exercise the x86_64 release binary in terminal sessions with rollback and WAL databases.
 - [x] Cover navigation, search, help, resizing, queries, access changes, edits, paging, and recovery.
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
+- [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check confirmation, cleanup, symlink rejection, and restricted syscalls.
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
 - [x] Test SemVer parsing, precedence, release history, and changed-content checks. Mock the release publication commands and verify archive checksums.
@@ -26,7 +27,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41926400379](https://github.com/zimlr/zig-sql-tui/actions/runs/41926400379). Syscall tracing remains limited to x86_64.
 - [x] Package the aarch64 Linux executable with the pinned Termux build system. The packaging job passed in [CI run 41917316005](https://github.com/zimlr/zig-sql-tui/actions/runs/41917316005).
 - [x] Open a database and display the TUI with the packaged ARM64 test binary in Termux on Android 13. The result is a user report.
-- [ ] Test writes, WAL, and recovery in the Termux app on Android. Linux ARM CI does not reproduce Android app seccomp or execution policies.
+- [ ] Run the isolated diagnostics build in the Termux app on Android and report the results. Linux ARM CI does not reproduce Android app seccomp or execution policies.
+- [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
 The prose checker covers project-owned Markdown and skips code spans and fenced code. It checks selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.

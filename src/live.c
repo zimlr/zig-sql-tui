@@ -207,7 +207,7 @@ int app_reopen_live(sqlite3 *current, int writable, sqlite3 **out, char *error, 
 /* Resolve each directory component from a pinned fd. O_PATH avoids requiring
  * read permission on intermediate directories, and O_NOFOLLOW rejects both
  * ordinary and magic symlinks. The final fd remains usable for fsync. */
-static int open_directory(const char *path) {
+int app_open_directory(const char *path) {
     int current = open(path[0] == '/' ? "/" : ".", O_PATH | O_DIRECTORY | O_CLOEXEC);
     if (current < 0) return -1;
     const char *p = path;
@@ -254,7 +254,7 @@ int app_open_live(const char *path, int writable, sqlite3 **out, char *error, si
     snprintf(wal_name, sizeof(wal_name), "%s-wal", base);
     snprintf(shm_name, sizeof(shm_name), "%s-shm", base);
     snprintf(journal_name, sizeof(journal_name), "%s-journal", base);
-    directory_fd = open_directory(dir);
+    directory_fd = app_open_directory(dir);
     if (directory_fd < 0) return fail(error, cap, "Cannot safely open database directory. A path without symlinks is required");
     live_writable = writable;
     int fd = safe_open("/db", O_RDONLY, 0);

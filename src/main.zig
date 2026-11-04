@@ -1,4 +1,6 @@
 const std = @import("std");
+const build_options = @import("build_options");
+extern fn app_diagnostics() c_int;
 
 const Db = opaque {};
 const Stmt = opaque {};
@@ -1066,6 +1068,22 @@ pub fn main(init: std.process.Init.Minimal) u8 {
         output(2, "Usage: zig-sql-tui [--check | --recover] DATABASE\n");
         return 2;
     };
+    if (std.mem.eql(u8, first, "--debug-test")) {
+        const confirmation = it.next() orelse {
+            output(2, "Usage: zig-sql-tui --debug-test --confirm\n");
+            return 2;
+        };
+        if (!std.mem.eql(u8, confirmation, "--confirm") or it.next() != null) {
+            output(2, "Usage: zig-sql-tui --debug-test --confirm\n");
+            return 2;
+        }
+        if (comptime build_options.diagnostics) {
+            return if (app_diagnostics() == 0) 0 else 1;
+        } else {
+            output(2, "Self-test is available only in a diagnostics build\n");
+            return 2;
+        }
+    }
     const check = std.mem.eql(u8, first, "--check");
     const recover = std.mem.eql(u8, first, "--recover");
     const path = if (check or recover) it.next() orelse {

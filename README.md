@@ -154,6 +154,20 @@ Recovery requires a terminal and explicit confirmation. Super-journal recovery i
 - SQLite limits schema SQL to 1 MiB. Queries have an execution budget and a 16 MiB value limit.
 - Non-ASCII code points are shown as Unicode escapes. Invalid UTF-8 and ASCII control bytes use hexadecimal escapes to prevent terminal escape injection.
 
+## Android debug self-test
+
+The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 Termux. Download the artifact from the workflow run, extract the ZIP file, and verify the included checksum. Extract the resulting archive and run the diagnostics build:
+
+```sh
+sha256sum -c SHA256SUMS
+tar -xzf zig-sql-tui-android-arm64-debug.tar.gz
+./zig-sql-tui-debug --debug-test --confirm
+```
+
+The flag and confirmation authorize writes only to disposable fixtures under `$HOME/.zig-sql-tui`. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts. Copy the complete output for diagnosis.
+
+The regular release build does not include this self-test. Android validation limits appear in the [test checklist](TESTING.md).
+
 ## Releases
 
 Release tags follow Semantic Versioning 2.0.0, starting at `v1.0.0`. The manual [release procedure](RELEASING.md) requires an explicit user request and validates unreleased changes.
