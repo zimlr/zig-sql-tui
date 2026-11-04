@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'SemVer tag, for example v1.0.0'
+        required: true
+        type: string
+      confirmed:
+        description: 'The repository user explicitly requested this release'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate request and release history
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          CONFIRMED: ${{ inputs.confirmed }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$CONFIRMED" = true || { echo 'An explicit user request is required.' >&2; exit 1; }
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" || { echo 'Run releases from the default branch.' >&2; exit 1; }
+          mkdir -p .zig-cache/tmp
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > .zig-cache/tmp/releases.json
+          python3 tools/release_policy.py "$VERSION" --releases .zig-cache/tmp/releases.json --commit "$GITHUB_SHA"
+
+  build-and-test:
+    needs: validate
+    runs-on: ubuntu-26.04
+    env:
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/global
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
+      TMPDIR: ${{ github.workspace }}/.zig-cache/tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Provision Zig 0.17.1
+        run: |
+          mkdir -p tools/zig .zig-cache/download "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR" "$TMPDIR"
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from urllib.request import urlopen
+          url = 'https://registry.npmjs.org/@zigpm/zig-linux-x64/-/zig-linux-x64-0.17.1.tgz'
+          path = Path('.zig-cache/download/zig.tgz')
+          with urlopen(url) as response, path.open('wb') as out:
+              while chunk := response.read(1024 * 1024):
+                  out.write(chunk)
+          if hashlib.sha256(path.read_bytes()).hexdigest() != 'fa23b02630bf478a588e66aa049236e1f5b0d920e7a84dc7979400ac3eee6346':
+              raise SystemExit('Zig package SHA-256 mismatch')
+          PY
+          tar -xzf .zig-cache/download/zig.tgz -C tools/zig --strip-components=1
+          echo '3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  tools/zig/zig.tar.xz' | sha256sum -c
+          tar -xJf tools/zig/zig.tar.xz -C tools/zig --strip-components=1
+          test "$(./tools/zig/zig version)" = 0.17.1
+      - name: Verify sources and prose
+        run: |
+          sha256sum -c vendor/sqlite/SHA256SUMS
+          python3 tools/check_prose.py
+          ./tools/zig/zig fmt --check build.zig src/main.zig
+      - name: Build and test x86_64
+        run: |
+          ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
+          ./tools/zig/zig build test -Doptimize=ReleaseSmall
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Build aarch64
+        run: ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/arm-output
+      - name: Verify and collect release binaries
+        run: |
+          mkdir -p .zig-cache/release-candidates
+          cp zig-out/bin/zig-sql-tui .zig-cache/release-candidates/zig-sql-tui-x86_64-linux-musl
+          cp .zig-cache/arm-output/bin/zig-sql-tui .zig-cache/release-candidates/zig-sql-tui-aarch64-linux-musl
+          for binary in .zig-cache/release-candidates/zig-sql-tui-*; do
+            header=$(readelf -h "$binary")
+            programs=$(readelf -l "$binary")
+            dynamic=$(readelf -d "$binary")
+            grep -E 'Type:[[:space:]]+DYN' <<< "$header"
+            if grep -q INTERP <<< "$programs"; then exit 1; fi
+            if grep -q '(NEEDED)' <<< "$dynamic"; then exit 1; fi
+          done
+          (cd .zig-cache/release-candidates && sha256sum zig-sql-tui-* > SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-candidates
+          path: .zig-cache/release-candidates/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  test-aarch64-linux:
+    needs: build-and-test
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-candidates
+          path: .zig-cache/release-candidates
+      - name: Test aarch64 Linux binary
+        run: |
+          test "$(uname -m)" = aarch64
+          (cd .zig-cache/release-candidates && sha256sum -c SHA256SUMS)
+          mkdir -p zig-out/bin .zig-cache/tmp
+          cp .zig-cache/release-candidates/zig-sql-tui-aarch64-linux-musl zig-out/bin/zig-sql-tui
+          chmod +x zig-out/bin/zig-sql-tui
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  publish:
+    needs: [build-and-test, test-aarch64-linux]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-candidates
+          path: .zig-cache/release-candidates
+      - name: Revalidate and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          CONFIRMED: ${{ inputs.confirmed }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          test "$CONFIRMED" = true
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+          current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq .sha)
+          test "$current" = "$GITHUB_SHA" || { echo 'Default branch advanced. Start a new release run.' >&2; exit 1; }
+          mkdir -p .zig-cache/tmp .zig-cache/release
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > .zig-cache/tmp/releases.json
+          policy=$(python3 tools/release_policy.py "$VERSION" --releases .zig-cache/tmp/releases.json --commit "$GITHUB_SHA")
+          (cd .zig-cache/release-candidates && sha256sum -c SHA256SUMS)
+          for arch in x86_64 aarch64; do
+            dir=".zig-cache/tmp/package-$arch"
+            mkdir -p "$dir"
+            cp ".zig-cache/release-candidates/zig-sql-tui-$arch-linux-musl" "$dir/zig-sql-tui"
+            chmod +x "$dir/zig-sql-tui"
+            cp README.md RELEASING.md DEPENDENCIES.md TESTING.md "$dir/"
+            mkdir -p "$dir/assets"
+            cp assets/zig-sql-tui-logo.png "$dir/assets/zig-sql-tui-logo.png"
+            cp vendor/sqlite/LICENSE.md "$dir/SQLITE-LICENSE.md"
+            tar -czf ".zig-cache/release/zig-sql-tui-$VERSION-$arch-linux-musl.tar.gz" -C "$dir" .
+          done
+          (cd .zig-cache/release && sha256sum zig-sql-tui-*.tar.gz > SHA256SUMS)
+          cat > .zig-cache/tmp/release-notes.md <<'EOF'
+          The aarch64 artifact targets Linux. Native Termux compatibility remains unverified, and an Android seccomp policy may block required syscalls.
+          EOF
+          args=()
+          if [ "$policy" = 'prerelease=true' ]; then args+=(--prerelease); fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
+          gh release create "$VERSION" .zig-cache/release/* --verify-tag --generate-notes --notes-file .zig-cache/tmp/release-notes.md "${args[@]}"

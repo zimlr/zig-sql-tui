@@ -1,3 +1,5 @@
+<img src="assets/zig-sql-tui-logo.png" alt="zig-sql-tui logo" width="192">
+
 # zig-sql-tui
 
 The application provides a keyboard-first terminal interface for browsing and editing SQLite databases. Databases open read-only by default. A Windows port is not planned.
@@ -151,6 +153,10 @@ Recovery requires a terminal and explicit confirmation. Super-journal recovery i
 - SQL is required to insert control characters or edit NUL-containing text, text exceeding 4096 bytes, larger BLOBs, and column names exceeding 255 bytes.
 - SQLite limits schema SQL to 1 MiB. Queries have an execution budget and a 16 MiB value limit.
 - Non-ASCII code points are shown as Unicode escapes. Invalid UTF-8 and ASCII control bytes use hexadecimal escapes to prevent terminal escape injection.
+
+## Releases
+
+Release tags follow Semantic Versioning 2.0.0, starting at `v1.0.0`. The manual [release procedure](RELEASING.md) requires an explicit user request and validates unreleased changes.
 
 ## Test
 
