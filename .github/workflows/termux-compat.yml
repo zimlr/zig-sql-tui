@@ -7,9 +7,11 @@ on:
       - 'build.zig'
       - 'src/**'
       - 'tests/termux/**'
-      - 'tests/test_termux*.py'
-      - 'tests/test_recovery.py'
-      - 'tools/check_termux_candidate.py'
+      - 'tests/test_termux*.zig'
+      - 'tests/terminal_support.zig'
+      - 'tests/process_support.zig'
+      - 'tools/check_termux_candidate.zig'
+      - 'tools/process_support.zig'
       - 'tools/fetch_termux_packages.sh'
       - 'tools/package_termux_candidate.sh'
       - 'vendor/sqlite/**'
@@ -19,9 +21,11 @@ on:
       - 'build.zig'
       - 'src/**'
       - 'tests/termux/**'
-      - 'tests/test_termux*.py'
-      - 'tests/test_recovery.py'
-      - 'tools/check_termux_candidate.py'
+      - 'tests/test_termux*.zig'
+      - 'tests/terminal_support.zig'
+      - 'tests/process_support.zig'
+      - 'tools/check_termux_candidate.zig'
+      - 'tools/process_support.zig'
       - 'tools/fetch_termux_packages.sh'
       - 'tools/package_termux_candidate.sh'
       - 'vendor/sqlite/**'
@@ -54,8 +58,11 @@ jobs:
         run: |
           sha256sum -c vendor/sqlite/SHA256SUMS
           ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
+          ./tools/zig/zig test tests/test_termux_probe.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=zig-out/bin/termux-probe-test
+          ./tools/zig/zig build-exe tools/check_termux_candidate.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc -femit-bin=zig-out/bin/check-termux-candidate
+          ./tools/zig/zig test tests/test_termux_restrictions.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=zig-out/bin/termux-restrictions-test
           cd zig-out/bin
-          sha256sum zsqt > SHA256SUMS
+          sha256sum zsqt termux-probe-test termux-restrictions-test check-termux-candidate > SHA256SUMS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: termux-candidate
@@ -114,19 +121,26 @@ jobs:
         with:
           name: termux-packaged-binary
           path: .zig-cache/candidate
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: termux-candidate
+          path: .zig-cache/original-candidate
       - name: Check Termux ELF and restricted syscall behavior
         run: |
           test "$(uname -m)" = aarch64
           (cd .zig-cache/candidate && sha256sum -c SHA256SUMS)
           chmod +x .zig-cache/candidate/zsqt
+          (cd .zig-cache/original-candidate && sha256sum -c SHA256SUMS)
+          chmod +x .zig-cache/original-candidate/termux-probe-test .zig-cache/original-candidate/termux-restrictions-test .zig-cache/original-candidate/check-termux-candidate
+          ZSQT_TERMUX_PROBE=.zig-cache/original-candidate/check-termux-candidate .zig-cache/original-candidate/termux-probe-test
           bash tools/fetch_termux_packages.sh
           set +e
-          python3 tools/check_termux_candidate.py .zig-cache/termux-packages .zig-cache/candidate/zsqt > .zig-cache/probe.log 2>&1
+          .zig-cache/original-candidate/check-termux-candidate .zig-cache/termux-packages .zig-cache/candidate/zsqt > .zig-cache/probe.log 2>&1
           result=$?
           if [ "$result" -eq 0 ]; then
             mkdir -p zig-out/bin .zig-cache/tmp
             cp .zig-cache/candidate/zsqt zig-out/bin/zsqt
-            python3 -m unittest discover -s tests -p 'test_termux*.py' -v >> .zig-cache/probe.log 2>&1
+            ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/original-candidate/termux-restrictions-test >> .zig-cache/probe.log 2>&1
             result=$?
           fi
           cat .zig-cache/probe.log

@@ -1,5 +1,5 @@
 # Test-only recipe. The repository does not declare a project license.
-TERMUX_PKG_HOMEPAGE=https://github.com/zimlr/zig-sql-tui
+TERMUX_PKG_HOMEPAGE=https://github.com/zimlr/zsqt
 TERMUX_PKG_DESCRIPTION="SQLite terminal interface compatibility test"
 TERMUX_PKG_LICENSE="test-only"
 TERMUX_PKG_MAINTAINER="@zimlr"

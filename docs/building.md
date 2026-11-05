@@ -49,4 +49,4 @@ Use `-Dtarget=aarch64-linux-musl` to build for aarch64 Linux. The output is `zig
 
 ## Implementation
 
-SQLite is compiled into the executable from the vendored amalgamation. The TUI is implemented in the repository without a third-party TUI library. In particular, libvaxis is not a dependency.
+SQLite is compiled into the executable from the vendored amalgamation. The TUI is implemented in the repository without a third-party TUI library. In particular, libvaxis is not a dependency. Zig integration tests and the C security harness run through the test build step described in [testing](../TESTING.md).

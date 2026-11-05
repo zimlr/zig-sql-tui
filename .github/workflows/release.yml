@@ -23,11 +23,43 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-26.04
+    env:
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/global
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
+      TMPDIR: ${{ github.workspace }}/.zig-cache/tmp
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify release request
+        env:
+          CONFIRMED: ${{ inputs.confirmed }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$CONFIRMED" = true || { echo 'An explicit user request is required.' >&2; exit 1; }
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" || { echo 'Run releases from the default branch.' >&2; exit 1; }
+      - name: Provision Zig 0.17.1
+        run: |
+          mkdir -p tools/zig .zig-cache/download "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR" "$TMPDIR"
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from urllib.request import urlopen
+          url = 'https://registry.npmjs.org/@zigpm/zig-linux-x64/-/zig-linux-x64-0.17.1.tgz'
+          path = Path('.zig-cache/download/zig.tgz')
+          with urlopen(url) as response, path.open('wb') as out:
+              while chunk := response.read(1024 * 1024):
+                  out.write(chunk)
+          if hashlib.sha256(path.read_bytes()).hexdigest() != 'fa23b02630bf478a588e66aa049236e1f5b0d920e7a84dc7979400ac3eee6346':
+              raise SystemExit('Zig package SHA-256 mismatch')
+          PY
+          tar -xzf .zig-cache/download/zig.tgz -C tools/zig --strip-components=1
+          echo '3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  tools/zig/zig.tar.xz' | sha256sum -c
+          tar -xJf tools/zig/zig.tar.xz -C tools/zig --strip-components=1
+          test "$(./tools/zig/zig version)" = 0.17.1
+      - name: Build release policy
+        run: ./tools/zig/zig build-exe tools/release_policy.zig -O ReleaseSmall -lc -femit-bin=.zig-cache/release-policy
       - name: Validate request and release history
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,7 +71,7 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" || { echo 'Run releases from the default branch.' >&2; exit 1; }
           mkdir -p .zig-cache/tmp
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > .zig-cache/tmp/releases.json
-          python3 tools/release_policy.py "$VERSION" --releases .zig-cache/tmp/releases.json --commit "$GITHUB_SHA"
+          .zig-cache/release-policy "$VERSION" --releases .zig-cache/tmp/releases.json --commit "$GITHUB_SHA"
 
   build-and-test:
     needs: validate
@@ -74,13 +106,14 @@ jobs:
       - name: Verify sources and prose
         run: |
           sha256sum -c vendor/sqlite/SHA256SUMS
-          python3 tools/check_prose.py
-          ./tools/zig/zig fmt --check build.zig src/main.zig
+          ./tools/zig/zig build tools -Doptimize=ReleaseSmall
+          zig-out/tools/check-prose
+          ./tools/zig/zig fmt --check build.zig src/main.zig tests/*.zig tools/*.zig
       - name: Build and test x86_64
         run: |
           ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
           ./tools/zig/zig build test -Doptimize=ReleaseSmall
-          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          ZSQT_AUDIT_EXE=zig-out/bin/zsqt ./tools/zig/zig test tests/test_syscalls.zig vendor/sqlite/sqlite3.c -O ReleaseSmall -lc
       - name: Build aarch64
         run: ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/arm-output
       - name: Verify and collect release binaries
@@ -96,7 +129,25 @@ jobs:
             if grep -q INTERP <<< "$programs"; then exit 1; fi
             if grep -q '(NEEDED)' <<< "$dynamic"; then exit 1; fi
           done
-          (cd .zig-cache/release-candidates && sha256sum zsqt-* > SHA256SUMS)
+          ./tools/zig/zig test tests/test_termux_probe.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/termux-probe-test
+          ./tools/zig/zig build-exe tools/check_termux_candidate.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc -femit-bin=.zig-cache/release-candidates/check-termux-candidate
+          ./tools/zig/zig test tests/test_termux_tool.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/termux-tool-test
+          ./tools/zig/zig test tests/test_prose.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/prose-test
+          ./tools/zig/zig build-exe tools/check_prose.zig -target aarch64-linux-musl -O ReleaseSmall -lc -femit-bin=.zig-cache/release-candidates/check-prose
+          ./tools/zig/zig test tests/test_release_policy.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/release-policy-test
+          ./tools/zig/zig build-exe tools/release_policy.zig -target aarch64-linux-musl -O ReleaseSmall -lc -femit-bin=.zig-cache/release-candidates/release-policy-aarch64
+          ./tools/zig/zig build-exe tools/release_policy.zig -target x86_64-linux-musl -O ReleaseSmall -lc -femit-bin=.zig-cache/release-candidates/release-policy-x86_64
+          ./tools/zig/zig test tests/test_diagnostics.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/diagnostics-test
+          ./tools/zig/zig test tests/test_pointer_navigation.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/pointer-navigation-test
+          ./tools/zig/zig test tests/test_global_search.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/global-search-test
+          ./tools/zig/zig test tests/test_without_rowid.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/without-rowid-test
+          ./tools/zig/zig test tests/test_paging.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/paging-test
+          ./tools/zig/zig test tests/test_live_audit.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/live-audit-test
+          ./tools/zig/zig test tests/test_app.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/app-test
+          ./tools/zig/zig test tests/test_recovery.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/recovery-test
+          ./tools/zig/zig test tests/test_wal_write.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/wal-write-test
+          ./tools/zig/zig test tests/test_termux_restrictions.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/termux-restrictions-test
+          (cd .zig-cache/release-candidates && sha256sum zsqt-* termux-probe-test check-termux-candidate termux-tool-test prose-test check-prose release-policy-test release-policy-aarch64 release-policy-x86_64 diagnostics-test pointer-navigation-test global-search-test without-rowid-test paging-test live-audit-test app-test recovery-test wal-write-test termux-restrictions-test > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-candidates
@@ -122,8 +173,21 @@ jobs:
           (cd .zig-cache/release-candidates && sha256sum -c SHA256SUMS)
           mkdir -p zig-out/bin .zig-cache/tmp
           cp .zig-cache/release-candidates/zsqt-aarch64-linux-musl zig-out/bin/zsqt
-          chmod +x zig-out/bin/zsqt
-          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          chmod +x zig-out/bin/zsqt .zig-cache/release-candidates/termux-probe-test .zig-cache/release-candidates/pointer-navigation-test .zig-cache/release-candidates/global-search-test .zig-cache/release-candidates/without-rowid-test .zig-cache/release-candidates/paging-test .zig-cache/release-candidates/live-audit-test .zig-cache/release-candidates/app-test .zig-cache/release-candidates/recovery-test .zig-cache/release-candidates/wal-write-test .zig-cache/release-candidates/release-policy-test .zig-cache/release-candidates/diagnostics-test .zig-cache/release-candidates/termux-restrictions-test .zig-cache/release-candidates/check-termux-candidate .zig-cache/release-candidates/termux-tool-test .zig-cache/release-candidates/release-policy-aarch64 .zig-cache/release-candidates/prose-test .zig-cache/release-candidates/check-prose
+          ZSQT_TERMUX_PROBE=.zig-cache/release-candidates/check-termux-candidate .zig-cache/release-candidates/termux-probe-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt ZSQT_TERMUX_PROBE=.zig-cache/release-candidates/check-termux-candidate .zig-cache/release-candidates/termux-tool-test
+          ZSQT_PROSE_TOOL=.zig-cache/release-candidates/check-prose .zig-cache/release-candidates/prose-test
+          ZSQT_RELEASE_POLICY=.zig-cache/release-candidates/release-policy-aarch64 .zig-cache/release-candidates/release-policy-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/diagnostics-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/pointer-navigation-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/global-search-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/without-rowid-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/paging-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/live-audit-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/app-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/recovery-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/wal-write-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/termux-restrictions-test
 
   publish:
     needs: [build-and-test, test-aarch64-linux]
@@ -153,18 +217,21 @@ jobs:
           test "$current" = "$GITHUB_SHA" || { echo 'Default branch advanced. Start a new release run.' >&2; exit 1; }
           mkdir -p .zig-cache/tmp .zig-cache/release
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > .zig-cache/tmp/releases.json
-          policy=$(python3 tools/release_policy.py "$VERSION" --releases .zig-cache/tmp/releases.json --commit "$GITHUB_SHA")
           (cd .zig-cache/release-candidates && sha256sum -c SHA256SUMS)
+          chmod +x .zig-cache/release-candidates/release-policy-x86_64
+          policy=$(.zig-cache/release-candidates/release-policy-x86_64 "$VERSION" --releases .zig-cache/tmp/releases.json --commit "$GITHUB_SHA")
           for arch in x86_64 aarch64; do
             dir=".zig-cache/tmp/package-$arch"
             mkdir -p "$dir"
             cp ".zig-cache/release-candidates/zsqt-$arch-linux-musl" "$dir/zsqt"
             chmod +x "$dir/zsqt"
-            cp README.md RELEASING.md DEPENDENCIES.md TESTING.md "$dir/"
+            cp README.md RELEASING.md DEPENDENCIES.md TESTING.md SECURITY.md "$dir/"
             mkdir -p "$dir/docs"
             cp docs/building.md docs/limitations.md "$dir/docs/"
             mkdir -p "$dir/assets"
             cp assets/zsqt-logo.png "$dir/assets/zsqt-logo.png"
+            mkdir -p "$dir/completions"
+            cp completions/zsqt.bash completions/_zsqt completions/zsqt.fish "$dir/completions/"
             cp vendor/sqlite/LICENSE.md "$dir/SQLITE-LICENSE.md"
             tar -czf ".zig-cache/release/zsqt-$VERSION-$arch-linux-musl.tar.gz" -C "$dir" .
           done
@@ -173,6 +240,10 @@ jobs:
           The aarch64 artifact targets Linux. Broader Termux compatibility remains unverified, and Android policies may cause additional failures.
           EOF
           args=()
-          if [ "$policy" = 'prerelease=true' ]; then args+=(--prerelease); fi
+          case "$policy" in
+            prerelease=true) args+=(--prerelease) ;;
+            prerelease=false) ;;
+            *) echo 'Invalid release policy output.' >&2; exit 1 ;;
+          esac
           gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
           gh release create "$VERSION" .zig-cache/release/* --verify-tag --generate-notes --notes-file .zig-cache/tmp/release-notes.md "${args[@]}"

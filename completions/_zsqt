@@ -1,0 +1,7 @@
+#compdef zsqt
+_arguments \
+  '(- *)--debug[Run the isolated database self-test]' \
+  '(- *)--help[Show usage]' \
+  '(-)--check[Check a database]:database:_files' \
+  '(-)--recover[Recover a database after confirmation]:database:_files' \
+  ':database:_files'
