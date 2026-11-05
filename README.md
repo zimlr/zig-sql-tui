@@ -90,7 +90,7 @@ Source the Bash file, place `_zsqt` in a Zsh `fpath` directory before `compinit`
 ./zsqt --recover path/to/database.sqlite
 ```
 
-For interactive use, place `--` before a database path beginning with `--`. The check verifies that the reader can open the database, not its integrity. Recovery requires a terminal and explicit confirmation before it modifies the database or journal. Entering write mode may also allow SQLite to perform recovery.
+Place `--` before a database path that begins with `--`, for example `zsqt -- --db.sqlite`. The terminator is also accepted after `--check` or `--recover`. A check verifies that the reader can open the database, not its integrity. Recovery requires a terminal and explicit confirmation before it modifies the database or journal. Entering write mode may also allow SQLite to perform recovery.
 
 Run `zsqt --debug` to exercise rollback writes, WAL, and recovery using disposable fixtures under `$HOME/.zsqt`. This option authorizes fixture writes and does not open an existing user database. See [testing](TESTING.md) for setup and cleanup details.
 

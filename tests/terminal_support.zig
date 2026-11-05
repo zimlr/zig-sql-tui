@@ -247,18 +247,23 @@ pub const CheckResult = struct {
 };
 
 pub fn runCheck(path: [*:0]const u8) !CheckResult {
-    return runNonInteractiveMode("--check", path, null, false);
+    return runProcess(&.{ "--check", path }, null, false);
 }
 
 pub fn runNonInteractive(option: [*:0]const u8, path: [*:0]const u8, input: ?[]const u8) !CheckResult {
-    return runNonInteractiveMode(option, path, input, false);
+    return runProcess(&.{ option, path }, input, false);
 }
 
 pub fn runRestrictedCheck(path: [*:0]const u8) !CheckResult {
-    return runNonInteractiveMode("--check", path, null, true);
+    return runProcess(&.{ "--check", path }, null, true);
 }
 
-fn runNonInteractiveMode(option: [*:0]const u8, path: [*:0]const u8, input: ?[]const u8, restricted: bool) !CheckResult {
+pub fn runArgs(args: []const [*:0]const u8) !CheckResult {
+    return runProcess(args, null, false);
+}
+
+fn runProcess(args: []const [*:0]const u8, input: ?[]const u8, restricted: bool) !CheckResult {
+    if (args.len + 2 > 16) return error.TooManyArguments;
     var stdin_pipe: [2]c_int = undefined;
     if (c.pipe(&stdin_pipe) != 0) return error.PipeFailed;
     defer _ = c.close(stdin_pipe[0]);
@@ -289,9 +294,11 @@ fn runNonInteractiveMode(option: [*:0]const u8, path: [*:0]const u8, input: ?[]c
         _ = c.close(output_pipe[1]);
         _ = c.close(error_pipe[1]);
         const binary = c.getenv("ZSQT_TEST_EXE") orelse "zig-out/test-bin/zsqt";
-        const args = [_:null]?[*:0]const u8{ binary, option, path };
+        var argv: [16]?[*:0]const u8 = @splat(null);
+        argv[0] = binary;
+        for (args, 0..) |argument, index| argv[index + 1] = argument;
         if (restricted and !process.restrictSyscalls()) _exit(77);
-        _ = execv(binary, &args);
+        _ = execv(binary, @ptrCast(&argv));
         _exit(127);
     }
     _ = c.close(output_pipe[1]);

@@ -1432,7 +1432,7 @@ fn confirmRecovery() bool {
 pub fn main(init: std.process.Init.Minimal) u8 {
     var it = init.args.iterate();
     _ = it.next();
-    const usage = "Usage: zsqt [--check | --recover] DATABASE\n       zsqt --debug\n       zsqt --help\n";
+    const usage = "Usage: zsqt [--check | --recover] [--] DATABASE\n       zsqt --debug\n       zsqt --help\n";
     const first = it.next() orelse {
         output(2, usage);
         return 2;
@@ -1444,6 +1444,7 @@ pub fn main(init: std.process.Init.Minimal) u8 {
         }
         output(1, usage);
         output(1, "--debug runs a write and recovery self-test on disposable files under $HOME/.zsqt.\n");
+        output(1, "-- ends option parsing and may precede a database path beginning with --.\n");
         return 0;
     }
     if (std.mem.eql(u8, first, "--debug")) {
@@ -1460,9 +1461,19 @@ pub fn main(init: std.process.Init.Minimal) u8 {
         output(2, usage);
         return 2;
     }
-    const path = if (check or recover or end_options) it.next() orelse {
+    const path = if (end_options) it.next() orelse {
         output(2, usage);
         return 2;
+    } else if (check or recover) blk: {
+        const next = it.next() orelse {
+            output(2, usage);
+            return 2;
+        };
+        if (!std.mem.eql(u8, next, "--")) break :blk next;
+        break :blk it.next() orelse {
+            output(2, usage);
+            return 2;
+        };
     } else first;
     if (it.next() != null) {
         output(2, "Only one database may be opened\n");
