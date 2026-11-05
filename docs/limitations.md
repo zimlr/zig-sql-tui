@@ -19,8 +19,8 @@
 ## Input and editing
 
 - Input is append-only and ignores arrow keys. Command completion cycles through matching commands with Tab. SQL entry accepts one statement of up to 4096 UTF-8 bytes.
-- Cell editing supports ordinary rowid and WITHOUT ROWID tables. Rowid tables with shadowed aliases require a non-null primary key.
-- Cell editing is unavailable for rowid tables with 2000 columns and WITHOUT ROWID tables with more than 900 primary-key columns.
+- Ordinary rowid and WITHOUT ROWID tables support cell editing. Rowid tables with shadowed aliases require a non-null primary key.
+- Cell editing is unavailable for a 2000-column rowid table or a WITHOUT ROWID table with more than 900 primary-key columns.
 - BLOB editing accepts up to 2048 bytes as hexadecimal. Editing a NULL cell replaces it with text.
 - SQL is required to insert control characters or edit NUL-containing text, text exceeding 4096 bytes, larger BLOBs, and column names exceeding 255 bytes.
 - SQLite limits schema SQL to 1 MiB. Queries have an execution budget and a 16 MiB value limit.

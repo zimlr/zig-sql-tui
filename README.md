@@ -18,14 +18,16 @@ zsqt is a keyboard-first terminal user interface (TUI) for browsing and editing 
 
 ## Installation
 
-Download the archive for x86_64 or aarch64 Linux from [GitHub Releases](https://github.com/zimlr/zsqt/releases). For example, extract the x86_64 archive and run the executable:
+Download the archive for x86_64 or aarch64 Linux from [GitHub Releases](https://github.com/zimlr/zsqt/releases). Extract the x86_64 archive and run the executable:
 
 ```sh
 tar -xzf zsqt-v2.0.0-x86_64-linux-musl.tar.gz
 ./zsqt path/to/database.sqlite
 ```
 
-The earlier `v1.0.0` release uses the former `zig-sql-tui` project and executable names. It fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for the status of the fix. Builds from the current source use the `zsqt` executable name. The features and controls described below apply to current source and may differ from `v1.0.0`. A Windows port is not planned.
+The `v1.0.0` release uses the former `zig-sql-tui` project and executable names. That release fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for Termux validation status.
+
+The features and controls below describe current source and may differ from `v1.0.0`. A Windows port is not planned.
 
 To build from source, install Zig 0.17.1 at `tools/zig/zig` and run:
 
@@ -59,7 +61,11 @@ The title shows the database path, focused panel, interaction mode, and access s
 | Reload or quit | `:reload` or `q` |
 | Complete commands | `Tab` after `:` and repeat to cycle matches |
 
-Select a table, then press Tab to browse its rows. Mouse users can select tabs and rows, change pages with `[<]` and `[>]`, use the wheel, or drag to scroll when the terminal sends mouse events. Each wheel or drag motion event moves at most one item. The page indicator uses `+` when another page is available. Search wraps across pages in the focused table list or rows. Cycle to the details panel to inspect a cell. SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
+Select a table, then press Tab to browse its rows. The page indicator uses `+` when another page is available. Search wraps across pages in the focused table list or rows. Cycle to the details panel to inspect a cell.
+
+When the terminal sends mouse events, pointer controls can select tabs and rows, change pages with `[<]` and `[>]`, and scroll. Each wheel or drag motion event moves at most one item.
+
+SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
 
 ### Write data
 
@@ -71,7 +77,9 @@ Write SQL entered with `i` also requires confirmation. Use `:null` to set a sele
 
 ### Shell completion
 
-Completion files for Bash, Zsh, and Fish are installed under `zig-out/share` by the build. Archives produced by the current release workflow include the files in `completions`. The published `v1.0.0` archive does not include them. Source the Bash file, place `_zsqt` in a Zsh `fpath` directory before `compinit`, or copy the Fish file to `~/.config/fish/completions/zsqt.fish`.
+The build installs Bash, Zsh, and Fish completion files under `zig-out/share`. Release archives include the files in `completions`, except for `v1.0.0`.
+
+Source the Bash file, place `_zsqt` in a Zsh `fpath` directory before `compinit`, or copy the Fish file to `~/.config/fish/completions/zsqt.fish`.
 
 ### Check or recover a database
 

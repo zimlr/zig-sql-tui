@@ -11,6 +11,8 @@ extern fn app_execute_write(*Db, [*:0]const u8, [*]u8, usize) c_int;
 extern fn app_prepare_tables(*Db, i64, *?*Stmt) c_int;
 extern fn app_prepare_rows(*Db, [*:0]const u8, i64, *?*Stmt) c_int;
 extern fn app_prepare_editable_rows(*Db, [*:0]const u8, i64, *?*Stmt, *c_int) c_int;
+extern fn app_prepare_search_tables(*Db, *?*Stmt) c_int;
+extern fn app_prepare_search_rows(*Db, [*:0]const u8, c_int, *?*Stmt, *c_int) c_int;
 extern fn app_data_version(*Db, c_int, *c_int) c_int;
 extern fn app_update_cell(*Db, [*:0]const u8, [*:0]const u8, i64, c_int, i64, c_int, [*:0]const u8, c_int, c_int, [*]u8, usize) c_int;
 extern fn app_prepare_statement(*Db, [*:0]const u8, *?*Stmt, c_int, *c_int) c_int;
@@ -474,45 +476,47 @@ const App = struct {
 
     const SearchMatch = struct { page: usize, index: usize, column: usize };
 
-    // Scan the same bounded pages used by the browser without changing selection.
-    // Re-preparation preserves the row ordering used for editable tables.
-    fn scanSearchPage(self: *App, offset: usize, tables: bool, current: usize, backwards: bool, first: *?SearchMatch, last: *?SearchMatch, nearest: *?SearchMatch) ?bool {
+    // A single scan preserves the page ordering without repeatedly skipping earlier rows.
+    // The SQLite progress handler still limits the entire search.
+    fn searchPages(self: *App, tables: bool, current: usize, backwards: bool) ?SearchMatch {
+        app_query_begin(self.db);
+        defer app_query_end(self.db);
         var stmt: ?*Stmt = null;
         var key_kind: c_int = 0;
         var is_write: c_int = 0;
         const rc = if (tables)
-            app_prepare_tables(self.db, @intCast(offset), &stmt)
+            app_prepare_search_tables(self.db, &stmt)
         else if (self.query_results)
             app_prepare_statement(self.db, self.active_query.cstr(), &stmt, 0, &is_write)
-        else if (self.writable)
-            app_prepare_editable_rows(self.db, self.tables[self.table_index].cstr(), @intCast(offset), &stmt, &key_kind)
         else
-            app_prepare_rows(self.db, self.tables[self.table_index].cstr(), @intCast(offset), &stmt);
+            app_prepare_search_rows(self.db, self.tables[self.table_index].cstr(), if (self.writable) 1 else 0, &stmt, &key_kind);
         if (rc != sqlite_ok or stmt == null) {
             self.setError();
             return null;
         }
         defer _ = sqlite3_finalize(stmt.?);
-        if (!tables and self.query_results) {
-            for (0..offset) |_| {
-                const step = sqlite3_step(stmt.?);
-                if (step == sqlite_done) return false;
-                if (step != sqlite_row) {
-                    self.setError();
-                    return null;
-                }
-            }
-        }
-        const limit: usize = if (tables) max_tables else max_rows;
-        var count: usize = 0;
+        const page_size: usize = if (tables) max_tables else max_rows;
+        var first: ?SearchMatch = null;
+        var last: ?SearchMatch = null;
+        var nearest: ?SearchMatch = null;
+        var raw_index: usize = 0;
         var valid: usize = 0;
-        while (count < limit) : (count += 1) {
+        while (true) {
             const step = sqlite3_step(stmt.?);
-            if (step == sqlite_done) return false;
+            if (step == sqlite_done) break;
             if (step != sqlite_row) {
                 self.setError();
                 return null;
             }
+            if (raw_index > std.math.maxInt(i64) - page_size) {
+                self.failed = true;
+                self.message.set("Search exceeded page limit");
+                return null;
+            }
+            const page_offset = (raw_index / page_size) * page_size;
+            if (raw_index % page_size == 0) valid = 0;
+            const index = if (tables) valid else raw_index % page_size;
+            raw_index += 1;
             var found: ?usize = null;
             if (tables) {
                 const name = sqlite3_column_text(stmt.?, 0) orelse {
@@ -521,6 +525,7 @@ const App = struct {
                 };
                 const len: usize = @intCast(@max(0, sqlite3_column_bytes(stmt.?, 0)));
                 if (len >= self.tables[0].data.len or std.mem.indexOfScalar(u8, name[0..len], 0) != null) continue;
+                valid += 1;
                 if (std.mem.indexOf(u8, name[0..len], self.search.slice()) != null) found = 0;
             } else {
                 const hidden: usize = if (key_kind == 1) 1 else 0;
@@ -543,44 +548,16 @@ const App = struct {
                     }
                 }
             }
-            const index = if (tables) valid else count;
-            if (tables) valid += 1;
+            const absolute = page_offset + index;
             if (found) |col| {
-                const match = SearchMatch{ .page = offset, .index = index, .column = col };
-                if (first.* == null) first.* = match;
-                last.* = match;
-                const absolute = offset + index;
+                const match = SearchMatch{ .page = page_offset, .index = index, .column = col };
+                if (first == null) first = match;
+                last = match;
                 if (backwards) {
-                    if (absolute < current) nearest.* = match;
-                } else if (absolute > current and nearest.* == null) nearest.* = match;
+                    if (absolute < current) nearest = match;
+                } else if (absolute > current and nearest == null) nearest = match;
             }
-            const absolute = offset + index;
-            if (nearest.* != null and ((!backwards) or absolute >= current)) return false;
-        }
-        const step = sqlite3_step(stmt.?);
-        if (step == sqlite_row) return true;
-        if (step == sqlite_done) return false;
-        self.setError();
-        return null;
-    }
-
-    fn searchPages(self: *App, tables: bool, current: usize, backwards: bool) ?SearchMatch {
-        app_query_begin(self.db);
-        defer app_query_end(self.db);
-        const page_size: usize = if (tables) max_tables else max_rows;
-        var first: ?SearchMatch = null;
-        var last: ?SearchMatch = null;
-        var nearest: ?SearchMatch = null;
-        var offset: usize = 0;
-        while (true) {
-            const more = self.scanSearchPage(offset, tables, current, backwards, &first, &last, &nearest) orelse return null;
-            if (!more or (!backwards and nearest != null) or (backwards and nearest != null and offset + page_size > current)) break;
-            if (offset > std.math.maxInt(i64) - page_size) {
-                self.failed = true;
-                self.message.set("Search exceeded page limit");
-                return null;
-            }
-            offset += page_size;
+            if (nearest != null and (!backwards or absolute >= current)) break;
         }
         return nearest orelse (if (backwards) last else first);
     }

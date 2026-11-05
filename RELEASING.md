@@ -10,9 +10,11 @@ Release tags use a `v` prefix followed by a [Semantic Versioning 2.0.0](https://
 
 After the initial release, select the version from the compatibility impact of all changes since the highest-precedence published release:
 
-- Increment MAJOR for incompatible public interface changes.
-- Increment MINOR for backward-compatible functionality or deprecations.
-- Increment PATCH for backward-compatible fixes.
+| Increment | Compatibility impact |
+| --- | --- |
+| MAJOR | Incompatible public interface changes |
+| MINOR | Backward-compatible functionality or deprecations |
+| PATCH | Backward-compatible fixes |
 
 A prerelease identifier marks a prerelease, and build metadata does not affect precedence. Published versions are immutable. A candidate must have greater precedence than every published release, including prereleases. Numeric core and prerelease identifiers cannot contain leading zeroes.
 
