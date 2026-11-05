@@ -72,6 +72,21 @@ static int safe_open_directory(const char *path, int *fd) {
     *fd = dup(directory_fd);
     return *fd >= 0 ? SQLITE_OK : SQLITE_CANTOPEN;
 }
+/* SQLite opens a WAL with READWRITE|CREATE even for a read-only connection.
+ * When a cleanly closed database has no sidecars, the read-only open would
+ * fail with "unable to open database file". Create the empty WAL ourselves so
+ * SQLite can treat it as present; the handle below stays read-only. */
+static int create_empty_wal(void) {
+    struct stat st;
+    if (fstatat(directory_fd, wal_name, &st, AT_SYMLINK_NOFOLLOW) == 0)
+        return S_ISREG(st.st_mode) && st.st_nlink == 1 ? 0 : -1;
+    if (errno != ENOENT) return -1;
+    int fd = openat(directory_fd, wal_name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) return errno == EEXIST ? 0 : -1;
+    int ok = fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_nlink == 1;
+    if (close(fd) != 0) ok = 0;
+    return ok ? 0 : -1;
+}
 static int restricted_open(sqlite3_vfs *v, sqlite3_filename path, sqlite3_file *file, int flags, int *out) {
     (void)v;
     if (!path || (!strcmp(path, "/db") && !(flags & SQLITE_OPEN_MAIN_DB)) ||
@@ -80,6 +95,7 @@ static int restricted_open(sqlite3_vfs *v, sqlite3_filename path, sqlite3_file *
         (strcmp(path, "/db") && strcmp(path, "/db-wal") && strcmp(path, "/db-journal"))) return SQLITE_CANTOPEN;
     if (!strcmp(path, "/db") && (flags & SQLITE_OPEN_CREATE)) return SQLITE_CANTOPEN;
     if (!live_writable) {
+        if (!strcmp(path, "/db-wal") && (flags & SQLITE_OPEN_CREATE) && create_empty_wal()) return SQLITE_CANTOPEN;
         flags &= ~(SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
         flags |= SQLITE_OPEN_READONLY;
     }

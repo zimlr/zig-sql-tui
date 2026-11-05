@@ -26,6 +26,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 - [x] Run the mechanical prose check on project-owned Markdown. An earlier manual review missed style violations. Third-party SQLite license text remains unchanged.
 - [x] Exercise an x86_64 Linux binary in terminal sessions with rollback and WAL databases.
+- [x] Open a cleanly closed WAL database with no sidecars read-only. `tests/test_wal_write.zig` checks `--check` and the table view after the reader creates an empty WAL and the SHM sidecar, and fails without that handling.
 - [x] Cover navigation, search, help, resizing, queries, access changes, edits, paging, and recovery.
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
 - [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check explicit debug authorization, cleanup, symlink rejection, and restricted syscalls.

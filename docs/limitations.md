@@ -3,7 +3,7 @@
 ## Database access
 
 - A hot rollback journal requires confirmed recovery before read-only access. Recovery requiring a super-journal is not supported because super-journals are outside the file allowlist.
-- Database paths must not contain symbolic links. SQLite may create or update the SHM sidecar in read-only WAL mode.
+- Database paths must not contain symbolic links. Read-only WAL access may create an empty WAL and the SHM sidecar, which requires a writable database directory.
 - Attachment, extension loading, and SQL PRAGMAs are disabled.
 - The table list includes entries of type `table` and omits views. SQLite heap use is limited to 320 MiB for the whole process.
 
