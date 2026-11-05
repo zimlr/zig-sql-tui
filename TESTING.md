@@ -29,8 +29,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
 - [x] Test SemVer parsing, precedence, release history, and changed-content checks against isolated Git repositories.
 - [x] Run the release workflow on GitHub after an explicit user request. The initial release completed in [CI run 41923948348](https://github.com/zimlr/zsqt/actions/runs/41923948348).
-- [x] Run the aarch64 binary and migrated Zig integration suites on native aarch64 Linux. [CI run 41952702794](https://github.com/zimlr/zsqt/actions/runs/41952702794) passed for commit `8645a55`. Syscall tracing remains limited to x86_64.
-- [x] Package the aarch64 Linux executable with the pinned Termux build system and run restricted-syscall tests on native ARM. [Termux compatibility run 41952702958](https://github.com/zimlr/zsqt/actions/runs/41952702958) passed for commit `8645a55`.
+- [x] Run the aarch64 binary and migrated Zig integration suites on native aarch64 Linux. [CI run 41986367334](https://github.com/zimlr/zsqt/actions/runs/41986367334) passed for commit `d4a0ee1`. Syscall tracing remains limited to x86_64.
+- [x] Package the aarch64 Linux executable with the pinned Termux build system and run restricted-syscall tests on native ARM. [Termux compatibility run 41986367166](https://github.com/zimlr/zsqt/actions/runs/41986367166) passed for commit `d4a0ee1`.
 - [x] Open a database and use touch, scrolling, Home, End, Page Up, and Page Down in Termux on Android 13. The result is a user report for a later ARM64 test build.
 - [x] Run the isolated diagnostics build in Termux on Android 13. A user reported passing read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup.
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
@@ -53,7 +53,7 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 
 Fixtures use `.zig-cache/tmp`. The diagnostics suite runs against the regular test executable. Current CI configuration also tests the static production executable and its aarch64 counterpart.
 
-CI also traces the production x86_64 executable with `ZSQT_AUDIT_EXE=zig-out/bin/zsqt`. The aarch64 jobs run the cross-compiled integration suites on native ARM. Current uncommitted changes require a new CI run before those results can be attributed to them. Compiler setup and build commands are in [building](docs/building.md).
+CI also traces the production x86_64 executable with `ZSQT_AUDIT_EXE=zig-out/bin/zsqt`. The aarch64 jobs run the cross-compiled integration suites on native ARM. Compiler setup and build commands are in [building](docs/building.md).
 
 A sample database can be created with Python:
 
