@@ -256,9 +256,18 @@ static int progress(void *remaining) {
     return --*budget <= 0;
 }
 static int query_budget;
-void app_query_begin(sqlite3 *db) {
-    query_budget = 2000;
+static void query_begin(sqlite3 *db, int budget) {
+    query_budget = budget;
     sqlite3_progress_handler(db, 1000, progress, &query_budget);
+}
+void app_query_begin(sqlite3 *db) {
+    query_begin(db, 2000);
+}
+/* A full scan or a distant query page can require more work than a single
+ * query page. The larger navigation budget remains finite and independent
+ * of the limits used for initial user queries and writes. */
+void app_navigation_begin(sqlite3 *db) {
+    query_begin(db, 20000);
 }
 void app_query_end(sqlite3 *db) {
     sqlite3_progress_handler(db, 0, NULL, NULL);

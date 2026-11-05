@@ -17,6 +17,7 @@ extern fn app_data_version(*Db, c_int, *c_int) c_int;
 extern fn app_update_cell(*Db, [*:0]const u8, [*:0]const u8, i64, c_int, i64, c_int, [*:0]const u8, c_int, c_int, [*]u8, usize) c_int;
 extern fn app_prepare_statement(*Db, [*:0]const u8, *?*Stmt, c_int, *c_int) c_int;
 extern fn app_query_begin(*Db) void;
+extern fn app_navigation_begin(*Db) void;
 extern fn app_query_end(*Db) void;
 extern fn sqlite3_close(*Db) c_int;
 extern fn sqlite3_step(*Stmt) c_int;
@@ -369,7 +370,7 @@ const App = struct {
         self.failed = false;
         var stmt: ?*Stmt = null;
         var is_write: c_int = 0;
-        app_query_begin(self.db);
+        app_navigation_begin(self.db);
         defer app_query_end(self.db);
         if (app_prepare_statement(self.db, self.active_query.cstr(), &stmt, 0, &is_write) != sqlite_ok or stmt == null) {
             self.setError();
@@ -479,7 +480,7 @@ const App = struct {
     // A single scan preserves the page ordering without repeatedly skipping earlier rows.
     // The SQLite progress handler still limits the entire search.
     fn searchPages(self: *App, tables: bool, current: usize, backwards: bool) ?SearchMatch {
-        app_query_begin(self.db);
+        app_navigation_begin(self.db);
         defer app_query_end(self.db);
         var stmt: ?*Stmt = null;
         var key_kind: c_int = 0;

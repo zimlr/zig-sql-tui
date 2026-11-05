@@ -81,7 +81,7 @@ test "interrupted search does not report no match" {
     defer db.deinit();
     const t = try support.Terminal.init(@ptrCast(&db.path));
     defer t.deinit();
-    try t.send("iWITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000000) SELECT x FROM n\r", "Read-only query results");
+    try t.send("iWITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000000) SELECT x FROM n\r", "Read-only query results");
     try t.send("/not-present\r", "interrupted");
     try std.testing.expect(std.mem.indexOf(u8, t.output[0..t.len], "No match") == null);
     try t.quit();
@@ -194,4 +194,35 @@ test "search treats SQL syntax in data as text" {
     try t.send("/needle' OR 1=1--\r", "Row 2  Column 1/1");
     try t.quit();
     try db.expectValue("SELECT count(*) FROM data", "2");
+}
+
+test "search traverses a 373781-row 12-column table" {
+    var db = try support.Fixture.init(
+        "CREATE TABLE data(c0 TEXT,c1 TEXT,c2 TEXT,c3 TEXT,c4 TEXT,c5 TEXT,c6 TEXT,c7 TEXT,c8 TEXT,c9 TEXT,c10 TEXT,c11 TEXT);" ++
+            "WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<373781) " ++
+            "INSERT INTO data SELECT CASE WHEN i=2 THEN 'target' ELSE 'ordinary' END, 'a','b','c','d','e','f','g','h','i','j', CASE WHEN i=373780 THEN 'target' ELSE 'other' END FROM n;",
+    );
+    defer db.deinit();
+    const t = try support.Terminal.init(@ptrCast(&db.path));
+    defer t.deinit();
+    try t.send("\t", "[RO] NORMAL | ROWS");
+    try t.send("/target\r", "Row 2  Column 1/12");
+    try t.send("n", "Row 373780  Column 12/12");
+    try t.send("n", "Row 2  Column 1/12");
+    try t.send("N", "Row 373780  Column 12/12");
+    try t.send("/not-present\r", "No match");
+    try t.send("iSELECT * FROM data\r", "Read-only query results");
+    try t.send("/target\r", "Row 2  Column 1/12");
+    try t.send("n", "Row 373780  Column 12/12");
+    try t.send("N", "Row 2  Column 1/12");
+    try t.send(":reload\r", "Database reloaded");
+    try t.send(":set rw\r", "Enable write mode");
+    try t.send("y", "Write mode enabled");
+    try t.send("/target\r", "Row 2  Column 1/12");
+    try t.send("n", "Row 373780  Column 12/12");
+    try t.send("e", "CELL> target");
+    try t.send("\x15updated\r", "Save cell change?");
+    try t.send("y", "Cell update committed");
+    try db.expectValue("SELECT c11 FROM data WHERE rowid=373780", "updated");
+    try t.quit();
 }

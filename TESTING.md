@@ -4,7 +4,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 ## Findings
 
-- [x] Replace repeated page scans during search with a single bounded scan. A 40,000-row, 40-column terminal fixture previously reproduced an interruption when advancing to a distant match.
+- [x] Replace repeated page scans during search with a single bounded scan. Terminal fixtures cover distant matches in a 40,000-row, 40-column table and a 373,781-row, 12-column table. The navigation budget remains finite.
 - [x] Release-history validation rejects nonregular input without blocking. `tests/test_release_policy.zig` covers a named pipe.
 - [x] Markdown scanning rejects symbolic links and nonregular files. `tests/test_prose.zig` covers symlinks and named pipes without following or blocking on them.
 - [x] Termux probe setup rejects symbolic links and group-writable or world-writable cache directories. The check assumes the workspace is not modified concurrently by the same user.
