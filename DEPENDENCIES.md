@@ -9,7 +9,7 @@
 
 ## Release packaging
 
-Debian package creation uses `dpkg-deb`, `readelf`, and `xz` from the build host. Draft asset verification uses `jq` and `sha256sum`. These tools are supplied by the mutable runner image and are not version-pinned. Debian package assembly and local validation operate offline. Release publication requires GitHub access.
+Debian package creation uses `dpkg-deb`, `readelf`, and `xz` from the build host. Installation checks use `dpkg` and `cmp`, and draft asset verification uses `jq` and `sha256sum`. These tools are supplied by the mutable runner image and are not version-pinned. Debian package assembly and local validation operate offline. Release publication requires GitHub access.
 
 ## CI actions
 

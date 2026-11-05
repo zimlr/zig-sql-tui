@@ -44,6 +44,6 @@ The Debian version preserves SemVer precedence. Prerelease identifiers use an en
 
 No project license or maintainer email address is declared in the repository. The Debian package records the maintainer name without an email address and includes the SQLite license separately. It is not represented as an official Debian archive package.
 
-The workflow creates a draft release and uploads all assets before publication. It checks the uploaded asset names and SHA-256 digests, the default branch, and published release history before publishing the draft. This sequence supports immutable published releases. Broader Termux compatibility remains unverified and the release notes state that limitation.
+The workflow creates a draft release and uploads all assets before publication. It checks the uploaded asset names and SHA-256 digests, the default branch, and published release history before publishing the draft. This sequence supports immutable published releases and has passed local simulation, but no published release has used it yet. Broader Termux compatibility remains unverified and the release notes state that limitation.
 
 A failure during publication can leave a tag or draft release. Inspect the repository state before retrying. Do not replace or delete an existing release or tag without explicit user authorization.
