@@ -1,6 +1,6 @@
 # Test checklist
 
-Validation uses disposable databases under `.zig-cache/tmp`. Results cover the execution paths listed below.
+Validation uses disposable databases under `.zig-cache/tmp`, and the results cover the execution paths listed below.
 
 ## Findings
 
@@ -24,7 +24,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 ## Coverage
 
-- [x] Run the mechanical prose check on project-owned Markdown. An earlier manual review missed style violations. Third-party SQLite license text remains unchanged.
+- [x] Run the mechanical prose check on project-owned Markdown. It covers rules that an earlier manual review missed, and third-party SQLite license text remains unchanged.
 - [x] Exercise an x86_64 Linux binary in terminal sessions with rollback and WAL databases.
 - [x] Open a cleanly closed WAL database with no sidecars read-only. `tests/test_wal_write.zig` checks `--check` and the table view after the reader creates an empty WAL and the SHM sidecar, and fails without that handling.
 - [x] Cover navigation, search, help, resizing, queries, access changes, edits, paging, and recovery.
@@ -33,8 +33,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check explicit debug authorization, cleanup, symlink rejection, and restricted syscalls.
 - [x] Trace selected filesystem and network syscalls during read checks, cross-page searches, and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
 - [x] Verify transferred artifact checksums with `sha256sum -c` and reject an altered asset whose digest does not match the local file. These checksums detect mismatches but do not authenticate an artifact and manifest obtained together.
-- [x] Run the integration, diagnostic, restricted-syscall, release-policy, completion, and prose suites against the current x86_64 build. The checks cover their tested inputs and paths, not all possible behavior.
-- [x] Probe 16 header mutations and 48 scattered byte mutations with the x86_64 `--check` binary. Header mutations were rejected, and the 48 mutations remained readable, which does not establish database integrity. No tested file changed or produced a sidecar. `tests/test_app.zig` repeats these checks with a separate fixture.
+- [x] Run the integration, diagnostic, restricted-syscall, release-policy, completion, and prose suites against the current x86_64 build. The checks cover their tested inputs and paths without establishing complete coverage.
+- [x] Probe 16 header mutations and 48 scattered byte mutations with the x86_64 `--check` binary. Header mutations were rejected, and the 48 mutations remained readable, so database integrity stays unverified. No tested file changed or produced a sidecar. `tests/test_app.zig` repeats these checks with a separate fixture.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
 - [x] Test SemVer parsing, precedence, release history, and changed-content checks against isolated Git repositories.
 - [x] Run the release workflow on GitHub after an explicit user request. Releases `v1.0.0` and `v2.0.0` are published, and [CI run 42023815702](https://github.com/zimlr/zsqt/actions/runs/42023815702) published `v2.0.0`. Draft-first publication has not yet run for a published release.
@@ -45,11 +45,13 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
-The prose checker covers selected mechanical rules in project-owned Markdown and skips code spans and fenced code. Markdown file symlinks, nonregular Markdown files, and input files exceeding 64 MiB are rejected. Directory symlinks are not traversed. File checks require Linux `statx` and assume the workspace is not modified concurrently. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
+The prose checker covers selected mechanical rules in project-owned Markdown and skips code spans and fenced code. Markdown file symlinks, nonregular Markdown files, and input files exceeding 64 MiB are rejected, and directory symlinks are not traversed. File checks require Linux `statx` and assume the workspace is not modified concurrently. Tone, pacing, and other non-mechanical rules require manual review.
+
+The syscall tests require Linux x86_64 and permission to use `ptrace`, and they skip when those conditions are unavailable.
 
 ## Running tests
 
-The Zig test step runs the Zig suites and the existing C security harness. Linux x86_64 tests also require `dpkg`, `dpkg-deb`, `readelf`, `xz`, `jq`, `cmp`, and `sha256sum` for Debian package validation. It builds a separate test executable without replacing `zig-out/bin/zsqt`. On Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Zig tools. Git is required for release-policy tests.
+The Zig test step runs the Zig suites and the existing C security harness. Linux x86_64 tests also require `dpkg`, `dpkg-deb`, `readelf`, `xz`, `jq`, `cmp`, and `sha256sum` for Debian package validation. It builds a separate test executable without replacing `zig-out/bin/zsqt`, and on Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Zig tools, and the release-policy tests require Git.
 
 ```sh
 mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp
@@ -76,7 +78,7 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 
 The benchmark reports initial search and repeated next and previous search times. Results depend on the host, terminal, and storage.
 
-Fixtures use `.zig-cache/tmp`. The diagnostics suite runs against the regular test executable. Current CI configuration also tests the static production executable and its aarch64 counterpart.
+Fixtures use `.zig-cache/tmp`, and the diagnostics suite runs against the regular test executable. Current CI configuration also tests the static production executable and its aarch64 counterpart.
 
 CI builds Debian test packages for both architectures. The native ARM job installs the `arm64` package into an isolated root and tests its executable. These checks do not install packages into the runner system or validate Android Termux.
 
@@ -98,7 +100,7 @@ PY
 
 ## Android debug self-test
 
-The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 Termux. Artifacts expire after one day. Download the artifact from the workflow run, extract the ZIP file, and verify the included checksum. Extract the resulting archive and run the self-test:
+The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 Termux, and artifacts expire after one day. Download the artifact from the workflow run, extract the ZIP file, and verify the included checksum. Extract the resulting archive and run the self-test:
 
 ```sh
 sha256sum -c SHA256SUMS
@@ -106,13 +108,13 @@ tar -xzf zsqt-android-arm64-debug.tar.gz
 ./zsqt-debug --debug
 ```
 
-The `--debug` flag authorizes writes only to disposable fixtures under `$HOME/.zsqt`. It requires a home directory owned by the current user without group or world write permission. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts. Copy the complete output for diagnosis.
+The `--debug` flag authorizes writes only to disposable fixtures under `$HOME/.zsqt`. It requires a home directory owned by the current user without group or world write permission. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts, and the complete output supports diagnosis.
 
 Regular builds from the current source also include this self-test. The published `v1.0.0` release does not include it.
 
 ## Termux diagnostic
 
-The [Termux compatibility workflow](https://github.com/zimlr/zsqt/blob/main/.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. No package is published and no project license is declared by the recipe. An ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary. Detected incompatibilities fail the workflow. Separate testing inside the Termux app remains necessary.
+The [Termux compatibility workflow](https://github.com/zimlr/zsqt/blob/main/.github/workflows/termux-compat.yml) packages the aarch64 Linux executable with a test-only `termux-packages` recipe. No package is published and no project license is declared by the recipe. An ARM runner executes the upstream PIE check and a Linux seccomp probe against the packaged binary, and any detected incompatibility fails the workflow. Separate testing inside the Termux app remains necessary.
 
 Run the diagnostic locally with an executable matching the Linux host architecture:
 

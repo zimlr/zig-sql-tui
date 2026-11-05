@@ -5,16 +5,11 @@
 
 # zsqt
 
-zsqt is a keyboard-first terminal user interface (TUI) for browsing and editing SQLite databases. It opens databases read-only by default.
+zsqt is a keyboard-first terminal user interface (TUI) for browsing and editing SQLite databases, and it opens databases read-only by default.
 
 ## Features
 
-- Browse tables, rows, columns, and cell details.
-- Navigate with arrow keys or Vim-style keys, counts, search, and commands.
-- Run SQL queries and page through results.
-- Edit cells or execute write statements after confirmation.
-- Open rollback-mode and WAL-mode databases with SQLite locking.
-- Work offline with statically linked SQLite.
+The interface browses tables, rows, columns, and cell details, and it responds to arrow keys, Vim-style keys, counts, search, and commands. SQL queries run in the same view, and their results page in place. Cells and write statements require explicit confirmation, and SQLite locking covers rollback-mode and WAL-mode databases. Static linking keeps SQLite inside the executable, and every feature works offline.
 
 ## Installation
 
@@ -25,11 +20,11 @@ tar -xzf zsqt-v2.0.0-x86_64-linux-musl.tar.gz
 ./zsqt path/to/database.sqlite
 ```
 
-Releases published with the current workflow include Debian packages for `amd64` and `arm64`. Published release `v2.0.0` contains archives only. Install a matching package on Debian-based Linux with `sudo dpkg -i ./zsqt-vX.Y.Z-amd64.deb`, replacing `vX.Y.Z` with the release tag. Debian packages use `/usr` paths and do not target Termux.
+Releases published with the current workflow include Debian packages for `amd64` and `arm64`, while published release `v2.0.0` contains archives only. Install a matching package on Debian-based Linux with `sudo dpkg -i ./zsqt-vX.Y.Z-amd64.deb`, replacing `vX.Y.Z` with the release tag. Debian packages use `/usr` paths and do not target Termux.
 
-The `v1.0.0` release uses the former `zig-sql-tui` project and executable names. That release fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for Termux validation status.
+The `v1.0.0` release uses the former `zig-sql-tui` project and executable names, and that release fails on Android 13 Termux with `Bad system call`. Termux validation status and remaining device checks appear in [testing](TESTING.md).
 
-The features and controls below describe current source and may differ from published releases. A Windows port is not planned.
+The features and controls below describe current source and may differ from published releases, and a Windows port is not planned.
 
 To build from source, install Zig 0.17.1 at `tools/zig/zig` and run:
 
@@ -41,7 +36,7 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
 ```
 
-Use `-Dtarget=aarch64-linux-musl` for aarch64 Linux. The executable is installed at `zig-out/bin/zsqt`. Compiler setup and other build instructions are in [building](docs/building.md).
+Use `-Dtarget=aarch64-linux-musl` for aarch64 Linux, and the executable is installed at `zig-out/bin/zsqt`. Compiler setup and other build instructions are in [building](docs/building.md).
 
 ## Usage
 
@@ -70,11 +65,13 @@ The title shows the access state, interaction mode, focused panel, and database 
 | Quit | `q`, `:q`, or `:quit` |
 | Complete a command | `Tab` after `:` |
 
-Counts apply to `hjkl`, `gg`, and `G`. Each page holds 128 tables, 500 rows, or 32 columns, and the page label shows `+` while another page exists. A search wraps across pages and matches text values and BLOB size labels. The table list and rows accept a search, and the details panel reports that one of those panels is required.
+Counts apply to `hjkl`, `gg`, and `G`, and each page holds 128 tables, 500 rows, or 32 columns. The page label shows `+` while another page exists.
 
-Commands are `help`, `null`, `reload`, `set ro`, `set readonly`, `set rw`, `set write`, `q`, and `quit`. `Tab` cycles through commands that match the input, and an unknown command shows a reminder about the help screen.
+A search wraps across pages and matches text values and BLOB size labels. The table list and rows accept a search, and the details panel reports that one of those panels is required.
 
-Input accepts up to 4096 UTF-8 bytes and ignores arrow keys. Backspace or Ctrl-H deletes the last character, Ctrl-U clears the input, Enter submits, and Esc cancels. A confirmation accepts `y` or `Y`, and `n`, `N`, or Esc cancels. Other keys are ignored while a confirmation is pending, including `q`. The help screen closes on any key.
+The command line accepts `help`, `null`, `reload`, `set ro`, `set readonly`, `set rw`, `set write`, `q`, and `quit`. Tab cycles through commands that match the input, and an unknown command shows a reminder about the help screen. The `help` command or `?` opens the help screen, and any key closes it.
+
+Input accepts up to 4096 UTF-8 bytes and ignores arrow keys. Backspace or Ctrl-H deletes the last character, Ctrl-U clears the input, Enter submits, and Esc cancels. A confirmation accepts `y` or `Y`, and `n`, `N`, or Esc cancels it. Other keys are ignored while a confirmation is pending, including `q`.
 
 Mouse support requires a terminal that reports SGR mouse events. A click selects a panel tab, a row, or a column, and the `[<]` and `[>]` labels change pages. The wheel and drag gestures move at most one item per event.
 
@@ -86,11 +83,11 @@ The interface requires a terminal of at least 40 columns by 12 rows. Below that 
 2. Select a table cell and press `e`. Enter a value and press Enter.
 3. Confirm the change with `y`. Enter `:set ro` to return to read-only mode.
 
-Write SQL entered with `i` requires confirmation and shows `Execute this database write? y/n`. `:null` sets the selected cell to NULL after confirmation. Cell editing applies to eligible table rows and not to query results. A BLOB cell opens as hexadecimal text of up to 2048 bytes, and a NULL cell opens an empty field. Press `:reload` to return to the table view.
+Write SQL entered with `i` requires confirmation and shows `Execute this database write? y/n`. The `:null` command sets the selected cell to NULL after confirmation. Cell editing applies to eligible table rows and not to query results. A BLOB cell opens as hexadecimal text of up to 2048 bytes, and a NULL cell opens an empty field. The `:reload` command returns to the table view.
 
 ### Shell completion
 
-The build installs Bash, Zsh, and Fish completion files under `zig-out/share`. Release archives include the files in `completions`, except for `v1.0.0`. Debian packages install them under `/usr/share`.
+The build installs Bash, Zsh, and Fish completion files under `zig-out/share`. Release archives include the files in `completions` for every release after `v1.0.0`, and Debian packages install them under `/usr/share`.
 
 Source the Bash file, place `_zsqt` in a Zsh `fpath` directory before `compinit`, or copy the Fish file to `~/.config/fish/completions/zsqt.fish`.
 
@@ -101,15 +98,15 @@ Source the Bash file, place `_zsqt` in a Zsh `fpath` directory before `compinit`
 ./zsqt --recover path/to/database.sqlite
 ```
 
-Place `--` before a database path that begins with `--`, for example `zsqt -- --db.sqlite`. The terminator is also accepted after `--check` or `--recover`. A check verifies that the reader can open the database, not its integrity. Recovery requires a terminal and explicit confirmation before it modifies the database or journal. Entering write mode may also allow SQLite to perform recovery.
+Place `--` before a database path that begins with `--`, for example `zsqt -- --db.sqlite`. The terminator is also accepted after `--check` or `--recover`. A check verifies that the reader can open the database without testing file integrity. Recovery requires a terminal and explicit confirmation before it modifies the database or journal, and entering write mode may also allow SQLite to perform recovery.
 
-Run `zsqt --debug` to exercise rollback writes, WAL, and recovery using disposable fixtures under `$HOME/.zsqt`. This option authorizes fixture writes and does not open an existing user database. See [testing](TESTING.md) for setup and cleanup details.
+Run `zsqt --debug` to exercise rollback writes, WAL, and recovery using disposable fixtures under `$HOME/.zsqt`. This option authorizes fixture writes and does not open an existing user database. Setup and cleanup details for the fixtures appear in [testing](TESTING.md).
 
 ## Safety and limitations
 
 - Access is confined to the selected database and its WAL, SHM, and rollback-journal sidecars. Read-only WAL access may create an empty WAL and the SHM sidecar, which requires a writable database directory.
-- Attachment, extension loading, and SQL PRAGMAs are disabled. Super-journal recovery is not supported.
-- Database paths must not contain symbolic links.
+- Attachment, extension loading, and SQL PRAGMAs are disabled, and recovery requiring a super-journal is not supported.
+- Database paths must not contain symbolic links at any component.
 - The terminal must be at least 40 columns by 12 rows.
 
 See [limitations](docs/limitations.md) for input, display, and editing bounds.
