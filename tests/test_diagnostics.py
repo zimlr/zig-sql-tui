@@ -8,7 +8,7 @@ import unittest
 from test_recovery import EXE, ROOT, TMP
 from test_termux_restrictions import restrict
 
-DEBUG_EXE = os.environ.get("ZIG_SQL_TUI_DEBUG_EXE")
+DEBUG_EXE = os.environ.get("ZSQT_DEBUG_EXE")
 
 
 class ProductionDiagnosticsTests(unittest.TestCase):
@@ -41,7 +41,7 @@ class DiagnosticsTests(unittest.TestCase):
         for name in (b"ROLLBACK WRITE", b"WAL", b"RECOVERY", b"CLEANUP", b"RESULT"):
             self.assertIn(name + b": PASS", result.stdout)
         self.assertEqual(self.user_database.read_bytes(), b"do not modify")
-        self.assertEqual(list((self.home / ".zig-sql-tui").iterdir()), [])
+        self.assertEqual(list((self.home / ".zsqt").iterdir()), [])
 
     def test_confirmation_required_without_creating_files(self):
         for args in (("--debug-test",), ("--debug-test", "--confirm", "extra")):
@@ -49,7 +49,7 @@ class DiagnosticsTests(unittest.TestCase):
                 result = self.run_debug(*args)
                 self.assertEqual(result.returncode, 2)
                 self.assertIn(b"--debug-test --confirm", result.stderr)
-                self.assertFalse((self.home / ".zig-sql-tui").exists())
+                self.assertFalse((self.home / ".zsqt").exists())
         self.assertEqual(self.user_database.read_bytes(), b"do not modify")
 
     def test_self_test_and_cleanup(self):
@@ -74,31 +74,31 @@ class DiagnosticsTests(unittest.TestCase):
     def test_rejects_symlinked_home_and_config(self):
         other = self.home / "other"
         other.mkdir()
-        (self.home / ".zig-sql-tui").symlink_to(other, target_is_directory=True)
+        (self.home / ".zsqt").symlink_to(other, target_is_directory=True)
         result = self.run_debug("--debug-test", "--confirm")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"SETUP: FAIL", result.stdout)
         self.assertEqual(list(other.iterdir()), [])
         self.assertEqual(self.user_database.read_bytes(), b"do not modify")
-        (self.home / ".zig-sql-tui").unlink()
+        (self.home / ".zsqt").unlink()
         alias = self.home.parent / "home-alias"
         alias.symlink_to(self.home, target_is_directory=True)
         self.env["HOME"] = str(alias)
         result = self.run_debug("--debug-test", "--confirm")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"SETUP: FAIL", result.stdout)
-        self.assertFalse((self.home / ".zig-sql-tui").exists())
+        self.assertFalse((self.home / ".zsqt").exists())
 
     def test_rejects_writable_home_directory(self):
         self.home.chmod(0o777)
         result = self.run_debug("--debug-test", "--confirm")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"SETUP: FAIL", result.stdout)
-        self.assertFalse((self.home / ".zig-sql-tui").exists())
+        self.assertFalse((self.home / ".zsqt").exists())
         self.assertEqual(self.user_database.read_bytes(), b"do not modify")
 
     def test_rejects_writable_config_directory(self):
-        config = self.home / ".zig-sql-tui"
+        config = self.home / ".zsqt"
         config.mkdir(mode=0o700)
         config.chmod(0o777)
         result = self.run_debug("--debug-test", "--confirm")

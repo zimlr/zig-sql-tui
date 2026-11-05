@@ -45,7 +45,7 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
 ```
 
-Use `-Dtarget=aarch64-linux-musl` to build for aarch64 Linux. The output is `zig-out/bin/zig-sql-tui`.
+Use `-Dtarget=aarch64-linux-musl` to build for aarch64 Linux. The output is `zig-out/bin/zsqt`.
 
 ## Implementation
 

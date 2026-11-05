@@ -59,7 +59,7 @@ with sqlite3.connect('.zig-cache/tmp/example.sqlite') as db:
     db.execute('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)')
     db.execute('INSERT OR IGNORE INTO items VALUES (1, ?)', ('example',))
 PY
-./zig-out/bin/zig-sql-tui .zig-cache/tmp/example.sqlite
+./zig-out/bin/zsqt .zig-cache/tmp/example.sqlite
 ```
 
 ## Android debug self-test
@@ -68,11 +68,11 @@ The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 
 
 ```sh
 sha256sum -c SHA256SUMS
-tar -xzf zig-sql-tui-android-arm64-debug.tar.gz
-./zig-sql-tui-debug --debug-test --confirm
+tar -xzf zsqt-android-arm64-debug.tar.gz
+./zsqt-debug --debug-test --confirm
 ```
 
-The flag and confirmation authorize writes only to disposable fixtures under `$HOME/.zig-sql-tui`. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts. Copy the complete output for diagnosis.
+The flag and confirmation authorize writes only to disposable fixtures under `$HOME/.zsqt`. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts. Copy the complete output for diagnosis.
 
 The regular release build does not include this self-test.
 
@@ -84,7 +84,7 @@ Run the diagnostic locally with an executable matching the Linux host architectu
 
 ```sh
 bash tools/fetch_termux_packages.sh
-python3 tools/check_termux_candidate.py .zig-cache/termux-packages zig-out/bin/zig-sql-tui
+python3 tools/check_termux_candidate.py .zig-cache/termux-packages zig-out/bin/zsqt
 ```
 
 The diagnostic traps `openat2`, `faccessat2`, and `fchmodat2` with a Linux seccomp filter. Android policies and Termux app execution are not reproduced.

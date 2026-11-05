@@ -14,7 +14,7 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
-EXE = ROOT / "zig-out/bin/zig-sql-tui"
+EXE = ROOT / "zig-out/bin/zsqt"
 TMP = ROOT / ".zig-cache/tmp"
 
 

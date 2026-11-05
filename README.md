@@ -1,8 +1,8 @@
-<img src="assets/zig-sql-tui-logo.png" alt="zig-sql-tui logo" width="192">
+<img src="assets/zsqt-logo.png" alt="zsqt logo" width="192">
 
-# zig-sql-tui
+# zsqt
 
-zig-sql-tui is a keyboard-first SQLite browser and editor for the terminal. Databases open read-only by default.
+zsqt is a keyboard-first SQLite browser and editor for the terminal. Databases open read-only by default.
 
 ## Features
 
@@ -15,14 +15,14 @@ zig-sql-tui is a keyboard-first SQLite browser and editor for the terminal. Data
 
 ## Installation
 
-Download the archive for x86_64 or aarch64 Linux from [GitHub Releases](https://github.com/zimlr/zig-sql-tui/releases). Extract the archive and run the executable with a database path. For example:
+Download the archive for x86_64 or aarch64 Linux from [GitHub Releases](https://github.com/zimlr/zig-sql-tui/releases). The existing `v1.0.0` release retains the former project and executable names:
 
 ```sh
 tar -xzf zig-sql-tui-v1.0.0-x86_64-linux-musl.tar.gz
 ./zig-sql-tui path/to/database.sqlite
 ```
 
-Version `v1.0.0` fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for the status of the fix. A Windows port is not planned.
+Version `v1.0.0` fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for the status of the fix. Builds from the current source use the `zsqt` executable name. A Windows port is not planned.
 
 To build from source, install Zig 0.17.1 at `tools/zig/zig` and run:
 
@@ -34,7 +34,7 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
 ```
 
-Use `-Dtarget=aarch64-linux-musl` for aarch64 Linux. The executable is installed at `zig-out/bin/zig-sql-tui`. Compiler setup and other build instructions are in [building](docs/building.md).
+Use `-Dtarget=aarch64-linux-musl` for aarch64 Linux. The executable is installed at `zig-out/bin/zsqt`. Compiler setup and other build instructions are in [building](docs/building.md).
 
 ## Usage
 
@@ -68,8 +68,8 @@ Write SQL entered with `i` also requires confirmation. Use `:null` to set a sele
 ### Check or recover a database
 
 ```sh
-./zig-sql-tui --check path/to/database.sqlite
-./zig-sql-tui --recover path/to/database.sqlite
+./zsqt --check path/to/database.sqlite
+./zsqt --recover path/to/database.sqlite
 ```
 
 The check verifies that the reader can open the database, not its integrity. Recovery requires a terminal and explicit confirmation before it modifies the database or journal. Entering write mode may also allow SQLite to perform recovery.

@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
             "-DSQLITE_THREADSAFE=0",
         },
     });
-    const exe = b.addExecutable(.{ .name = "zig-sql-tui", .root_module = module });
+    const exe = b.addExecutable(.{ .name = "zsqt", .root_module = module });
     exe.pie = true;
     b.installArtifact(exe);
 
