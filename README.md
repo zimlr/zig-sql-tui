@@ -18,14 +18,14 @@ zsqt is a keyboard-first terminal user interface (TUI) for browsing and editing 
 
 ## Installation
 
-Download the archive for x86_64 or aarch64 Linux from [GitHub Releases](https://github.com/zimlr/zsqt/releases). The existing `v1.0.0` release retains the former project and executable names:
+Download the archive for x86_64 or aarch64 Linux from [GitHub Releases](https://github.com/zimlr/zsqt/releases). For example, extract the x86_64 archive and run the executable:
 
 ```sh
-tar -xzf zig-sql-tui-v1.0.0-x86_64-linux-musl.tar.gz
-./zig-sql-tui path/to/database.sqlite
+tar -xzf zsqt-v2.0.0-x86_64-linux-musl.tar.gz
+./zsqt path/to/database.sqlite
 ```
 
-Version `v1.0.0` fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for the status of the fix. Builds from the current source use the `zsqt` executable name. The features and controls described below apply to current source and may differ from `v1.0.0`. A Windows port is not planned.
+The earlier `v1.0.0` release uses the former `zig-sql-tui` project and executable names. It fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for the status of the fix. Builds from the current source use the `zsqt` executable name. The features and controls described below apply to current source and may differ from `v1.0.0`. A Windows port is not planned.
 
 To build from source, install Zig 0.17.1 at `tools/zig/zig` and run:
 
