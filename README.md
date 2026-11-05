@@ -96,7 +96,7 @@ Run `zsqt --debug` to exercise rollback writes, WAL, and recovery using disposab
 
 ## Safety and limitations
 
-- Access is confined to the selected database and its WAL, SHM, and rollback-journal sidecars. Read-only WAL access may create or update the SHM sidecar.
+- Access is confined to the selected database and its WAL, SHM, and rollback-journal sidecars. Read-only WAL access may create an empty WAL and the SHM sidecar, which requires a writable database directory.
 - Attachment, extension loading, and SQL PRAGMAs are disabled. Super-journal recovery is not supported.
 - Database paths must not contain symbolic links.
 - The terminal must be at least 40 columns by 12 rows.

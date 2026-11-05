@@ -1,4 +1,5 @@
 const std = @import("std");
+const c = std.c;
 const support = @import("terminal_support.zig");
 const Db = opaque {};
 extern fn sqlite3_open([*:0]const u8, *?*Db) c_int;
@@ -138,5 +139,27 @@ test "WAL transactions and read only switch" {
     try t.send(":set ro\r", "Read-only mode enabled");
     try std.testing.expect(std.mem.indexOf(u8, t.output[0..t.len], "[RO] NORMAL") != null);
     try t.send("i\r", "Enter exactly one read-only SQL statement");
+    try t.quit();
+}
+
+test "clean WAL database opens read-only without sidecars" {
+    var db = try support.Fixture.init("SELECT 1");
+    defer db.deinit();
+    const conn = try open(&db);
+    try exec(conn, "PRAGMA journal_mode=WAL; CREATE TABLE data(n TEXT); INSERT INTO data VALUES ('closed')");
+    try exec(conn, "PRAGMA wal_checkpoint(TRUNCATE)");
+    _ = sqlite3_close(conn);
+    var sidecar: [340]u8 = undefined;
+    for ([_][]const u8{ "-wal", "-shm" }) |suffix| {
+        const name = try std.fmt.bufPrint(&sidecar, "{s}{s}\x00", .{ std.mem.sliceTo(&db.path, 0), suffix });
+        try std.testing.expectEqual(@as(c_int, -1), c.access(@ptrCast(name.ptr), c.F_OK));
+    }
+    const result = try support.runCheck(@ptrCast(&db.path));
+    try std.testing.expectEqual(@as(c_int, 0), result.status);
+    try std.testing.expect(std.mem.indexOf(u8, result.output[0..result.len], "Read-only database: 1 tables") != null);
+    const t = try support.Terminal.init(@ptrCast(&db.path));
+    defer t.deinit();
+    try t.send("\t", "ROWS: data");
+    try std.testing.expect(std.mem.indexOf(u8, t.output[0..t.len], "closed") != null);
     try t.quit();
 }
