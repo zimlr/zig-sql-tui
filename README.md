@@ -1,5 +1,8 @@
 <img src="assets/zsqt-logo.png" alt="zsqt logo" width="192">
 
+<a href="https://github.com/zimlr/zsqt/actions/workflows/ci.yml"><img src="https://github.com/zimlr/zsqt/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+<a href="https://github.com/zimlr/zsqt/actions/workflows/termux-compat.yml"><img src="https://github.com/zimlr/zsqt/actions/workflows/termux-compat.yml/badge.svg" alt="Termux compatibility status"></a>
+
 # zsqt
 
 zsqt is a keyboard-first SQLite terminal browser and editor that opens databases read-only by default.
