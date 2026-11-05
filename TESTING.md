@@ -31,8 +31,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
 - [x] Test SemVer parsing, precedence, release history, and changed-content checks against isolated Git repositories.
 - [x] Run the release workflow on GitHub after an explicit user request. The initial release completed in [CI run 41923948348](https://github.com/zimlr/zsqt/actions/runs/41923948348).
-- [x] Run the aarch64 binary and migrated Zig integration suites on native aarch64 Linux. [CI run 41988557746](https://github.com/zimlr/zsqt/actions/runs/41988557746) passed for commit `47aa2a1`. Syscall tracing remains limited to x86_64.
-- [x] Package the aarch64 Linux executable with the pinned Termux build system and run restricted-syscall tests on native ARM. [Termux compatibility run 41988557761](https://github.com/zimlr/zsqt/actions/runs/41988557761) passed for commit `47aa2a1`.
+- [x] Run the aarch64 binary and migrated Zig integration suites on native aarch64 Linux. [CI run 41991191779](https://github.com/zimlr/zsqt/actions/runs/41991191779) passed for commit `5e663a5`. Syscall tracing remains limited to x86_64.
+- [x] Package the aarch64 Linux executable with the pinned Termux build system and run restricted-syscall tests on native ARM. [Termux compatibility run 41991191752](https://github.com/zimlr/zsqt/actions/runs/41991191752) passed for commit `5e663a5`.
 - [x] Open a database and use touch, scrolling, Home, End, Page Up, and Page Down in Termux on Android 13. The result is a user report for a later ARM64 test build.
 - [x] Run the isolated diagnostics build in Termux on Android 13. A user reported passing read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup.
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
@@ -87,7 +87,7 @@ tar -xzf zsqt-android-arm64-debug.tar.gz
 
 The `--debug` flag authorizes writes only to disposable fixtures under `$HOME/.zsqt`. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts. Copy the complete output for diagnosis.
 
-The regular release build also includes this self-test.
+Regular builds from the current source also include this self-test. The published `v1.0.0` release does not include it.
 
 ## Termux diagnostic
 
