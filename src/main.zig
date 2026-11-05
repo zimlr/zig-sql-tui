@@ -471,6 +471,119 @@ const App = struct {
         }
     }
 
+    const SearchMatch = struct { page: usize, index: usize, column: usize };
+
+    // Scan the same bounded pages used by the browser without changing selection.
+    // Re-preparation preserves the row ordering used for editable tables.
+    fn scanSearchPage(self: *App, offset: usize, tables: bool, current: usize, backwards: bool, first: *?SearchMatch, last: *?SearchMatch, nearest: *?SearchMatch) ?bool {
+        var stmt: ?*Stmt = null;
+        var key_kind: c_int = 0;
+        var is_write: c_int = 0;
+        const rc = if (tables)
+            app_prepare_tables(self.db, @intCast(offset), &stmt)
+        else if (self.query_results)
+            app_prepare_statement(self.db, self.active_query.cstr(), &stmt, 0, &is_write)
+        else if (self.writable)
+            app_prepare_editable_rows(self.db, self.tables[self.table_index].cstr(), @intCast(offset), &stmt, &key_kind)
+        else
+            app_prepare_rows(self.db, self.tables[self.table_index].cstr(), @intCast(offset), &stmt);
+        if (rc != sqlite_ok or stmt == null) {
+            self.setError();
+            return null;
+        }
+        defer _ = sqlite3_finalize(stmt.?);
+        if (!tables and self.query_results) {
+            for (0..offset) |_| {
+                const step = sqlite3_step(stmt.?);
+                if (step == sqlite_done) return false;
+                if (step != sqlite_row) {
+                    self.setError();
+                    return null;
+                }
+            }
+        }
+        const limit: usize = if (tables) max_tables else max_rows;
+        var count: usize = 0;
+        var valid: usize = 0;
+        while (count < limit) : (count += 1) {
+            const step = sqlite3_step(stmt.?);
+            if (step == sqlite_done) return false;
+            if (step != sqlite_row) {
+                self.setError();
+                return null;
+            }
+            var found: ?usize = null;
+            if (tables) {
+                const name = sqlite3_column_text(stmt.?, 0) orelse {
+                    self.setError();
+                    return null;
+                };
+                const len: usize = @intCast(@max(0, sqlite3_column_bytes(stmt.?, 0)));
+                if (len >= self.tables[0].data.len or std.mem.indexOfScalar(u8, name[0..len], 0) != null) continue;
+                if (std.mem.indexOf(u8, name[0..len], self.search.slice()) != null) found = 0;
+            } else {
+                const hidden: usize = if (key_kind == 1) 1 else 0;
+                const ncols: usize = @intCast(@max(0, sqlite3_column_count(stmt.?) - @as(c_int, @intCast(hidden))));
+                for (0..ncols) |col| {
+                    const column: c_int = @intCast(col + hidden);
+                    const cell_type = sqlite3_column_type(stmt.?, column);
+                    var blob_label: [40]u8 = undefined;
+                    const value: []const u8 = if (cell_type == 5) "NULL" else if (cell_type == 4)
+                        std.fmt.bufPrint(&blob_label, "[BLOB {d} bytes]", .{@max(0, sqlite3_column_bytes(stmt.?, column))}) catch "[BLOB]"
+                    else if (sqlite3_column_text(stmt.?, column)) |text|
+                        text[0..@intCast(@max(0, sqlite3_column_bytes(stmt.?, column)))]
+                    else {
+                        self.setError();
+                        return null;
+                    };
+                    if (std.mem.indexOf(u8, value, self.search.slice()) != null) {
+                        found = col;
+                        break;
+                    }
+                }
+            }
+            const index = if (tables) valid else count;
+            if (tables) valid += 1;
+            if (found) |col| {
+                const match = SearchMatch{ .page = offset, .index = index, .column = col };
+                if (first.* == null) first.* = match;
+                last.* = match;
+                const absolute = offset + index;
+                if (backwards) {
+                    if (absolute < current) nearest.* = match;
+                } else if (absolute > current and nearest.* == null) nearest.* = match;
+            }
+            const absolute = offset + index;
+            if (nearest.* != null and ((!backwards) or absolute >= current)) return false;
+        }
+        const step = sqlite3_step(stmt.?);
+        if (step == sqlite_row) return true;
+        if (step == sqlite_done) return false;
+        self.setError();
+        return null;
+    }
+
+    fn searchPages(self: *App, tables: bool, current: usize, backwards: bool) ?SearchMatch {
+        app_query_begin(self.db);
+        defer app_query_end(self.db);
+        const page_size: usize = if (tables) max_tables else max_rows;
+        var first: ?SearchMatch = null;
+        var last: ?SearchMatch = null;
+        var nearest: ?SearchMatch = null;
+        var offset: usize = 0;
+        while (true) {
+            const more = self.scanSearchPage(offset, tables, current, backwards, &first, &last, &nearest) orelse return null;
+            if (!more or (!backwards and nearest != null) or (backwards and nearest != null and offset + page_size > current)) break;
+            if (offset > std.math.maxInt(i64) - page_size) {
+                self.failed = true;
+                self.message.set("Search exceeded page limit");
+                return null;
+            }
+            offset += page_size;
+        }
+        return nearest orelse (if (backwards) last else first);
+    }
+
     fn find(self: *App, backwards: bool) void {
         self.failed = false;
         if (self.focus == .details) {
@@ -478,40 +591,39 @@ const App = struct {
             return;
         }
         if (self.search.len == 0) return;
-        const total = if (self.focus == .tables) self.table_count else self.row_count;
-        if (total == 0) return;
-        const selected = if (self.focus == .tables) self.table_index else self.row_index;
-        for (1..total + 1) |offset| {
-            const idx = if (backwards) (selected + total - offset % total) % total else (selected + offset) % total;
-            var found = false;
-            var matching_column: usize = 0;
-            if (self.focus == .tables) {
-                found = std.mem.indexOf(u8, self.tables[idx].slice(), self.search.slice()) != null;
-            } else {
-                for (self.cells[idx][0..self.column_count], 0..) |*cell, col| {
-                    if (std.mem.indexOf(u8, cell.slice(), self.search.slice()) != null) {
-                        found = true;
-                        matching_column = col;
-                        break;
-                    }
-                }
-            }
-            if (found) {
-                if (self.focus == .tables) {
-                    self.table_index = idx;
-                    self.row_offset = 0;
-                    self.column_offset = 0;
-                    self.loadRows();
-                } else {
-                    self.row_index = idx;
-                    self.column_index = matching_column;
-                    self.detail_offset = 0;
-                }
-                if (!self.failed) self.message.set("Match found");
+        const tables = self.focus == .tables;
+        if ((if (tables) self.table_count else self.row_count) == 0) return;
+        const current = if (tables) self.table_offset + self.table_index else self.row_offset + self.row_index;
+        const match = self.searchPages(tables, current, backwards) orelse {
+            if (!self.failed) self.message.set("No match");
+            return;
+        };
+        if (tables) {
+            self.table_offset = match.page;
+            self.row_offset = 0;
+            self.column_offset = 0;
+            self.loadTables();
+            if (self.failed) return;
+            if (match.index >= self.table_count) {
+                self.message.set("Search results changed. Retry");
                 return;
             }
+            self.table_index = match.index;
+            self.loadRows();
+        } else {
+            self.row_offset = match.page;
+            self.column_offset = (match.column / max_columns) * max_columns;
+            if (self.query_results) self.loadQueryPage() else self.loadRows();
+            if (self.failed) return;
+            if (match.index >= self.row_count or match.column < self.column_offset or match.column - self.column_offset >= self.column_count) {
+                self.message.set("Search results changed. Retry");
+                return;
+            }
+            self.row_index = match.index;
+            self.column_index = match.column - self.column_offset;
+            self.detail_offset = 0;
         }
-        self.message.set("No match");
+        if (!self.failed) self.message.set("Match found");
     }
 
     fn reload(self: *App) void {
@@ -1008,6 +1120,31 @@ fn layout(a: *const App) Layout {
     return .{ .multi = multi, .three = three, .table_width = table_width, .middle_col = middle_col, .detail_width = detail_width, .detail_col = detail_col, .row_width = if (three) detail_col - middle_col - 1 else a.cols - middle_col + 1 };
 }
 
+// Center and wrap the minimum-size warning even in very narrow terminals.
+fn centerResize(cols: usize, rows: usize) void {
+    if (cols == 0 or rows == 0) return;
+    const message = "Resize terminal to at least 40 x 12";
+    var lines: [message.len][]const u8 = undefined;
+    var count: usize = 0;
+    var start: usize = 0;
+    while (start < message.len and count < lines.len) {
+        while (start < message.len and message[start] == ' ') start += 1;
+        if (start == message.len) break;
+        var end = @min(message.len, start + cols);
+        if (end < message.len and message[end] != ' ') {
+            var split = end;
+            while (split > start and message[split] != ' ') split -= 1;
+            if (split > start) end = split;
+        }
+        lines[count] = message[start..end];
+        count += 1;
+        start = end;
+    }
+    const shown = @min(rows, count);
+    const top = (rows - shown) / 2 + 1;
+    for (0..shown) |i| printAt(top + i, (cols - lines[i].len) / 2 + 1, cols, lines[i]);
+}
+
 fn draw(a: *App) void {
     frame_len = 0;
     framing = true;
@@ -1028,7 +1165,7 @@ fn draw(a: *App) void {
     a.cols = @min(cols, 240);
     a.height = @min(height, 100);
     if (a.cols < 40 or a.height < 12) {
-        printAt(1, 1, a.cols, "Resize terminal to at least 40 x 12");
+        centerResize(a.cols, a.height);
         return;
     }
     var line: [512]u8 = undefined;
@@ -1048,7 +1185,10 @@ fn draw(a: *App) void {
     if (!a.help and a.pending == .none and a.mode == .normal) {
         clearRow(2);
         output(1, "\x1b[7m");
-        printAt(2, 1, a.cols, " TABLES  ROWS  DETAIL ");
+        const page_number = if (a.focus == .tables) a.table_offset / max_tables + 1 else a.row_offset / max_rows + 1;
+        const more = if (a.focus == .tables) a.tables_next else a.rows_next;
+        const tabs = std.fmt.bufPrint(&line, " TABLES  ROWS  DETAIL  [<] [>] p{d}{s}", .{ page_number, if (more) @as([]const u8, "+") else "" }) catch " TABLES  ROWS  DETAIL  [<] [>]";
+        printAt(2, 1, a.cols, tabs);
         output(1, "\x1b[0m");
     }
     if (a.help) {
@@ -1145,7 +1285,7 @@ fn pointer(a: *App, sequence: []const u8, final: c_int) void {
     if ((button & 3) != 0) return;
     drag_y = y;
     if (y == 2) {
-        if (x <= 8) a.focus = .tables else if (x <= 14) a.focus = .rows else if (x <= 22) a.focus = .details;
+        if (x <= 8) a.focus = .tables else if (x <= 14) a.focus = .rows else if (x <= 22) a.focus = .details else if (x >= 24 and x <= 26) a.page(false) else if (x >= 28 and x <= 30) a.page(true);
         drag_y = null;
         return;
     }
@@ -1214,7 +1354,7 @@ fn confirmRecovery() bool {
         app_terminal_size(&cols, &rows);
         output(1, "\x1b[?25l\x1b[H\x1b[2J");
         if (cols < 40 or rows < 12) {
-            printAt(1, 1, cols, "Resize terminal to at least 40 x 12");
+            centerResize(cols, rows);
         } else {
             printAt(1, 1, cols, "CONFIRM | Database recovery");
             printAt(3, 1, cols, "Recovery modifies database and journal.");

@@ -2,7 +2,7 @@
 
 # zsqt
 
-zsqt is a keyboard-first SQLite browser and editor for the terminal. Databases open read-only by default.
+zsqt is a keyboard-first SQLite terminal browser and editor that opens databases read-only by default.
 
 ## Features
 
@@ -15,7 +15,7 @@ zsqt is a keyboard-first SQLite browser and editor for the terminal. Databases o
 
 ## Installation
 
-Download the archive for x86_64 or aarch64 Linux from [GitHub Releases](https://github.com/zimlr/zig-sql-tui/releases). The existing `v1.0.0` release retains the former project and executable names:
+Download the archive for x86_64 or aarch64 Linux from [GitHub Releases](https://github.com/zimlr/zsqt/releases). The existing `v1.0.0` release retains the former project and executable names:
 
 ```sh
 tar -xzf zig-sql-tui-v1.0.0-x86_64-linux-musl.tar.gz
@@ -49,13 +49,13 @@ The title shows the database path, focused panel, interaction mode, and access s
 | Scroll by a screen | Page Up or Page Down |
 | Change table or row page | `[` or `]` |
 | Change column page | `<` or `>` |
-| Search the current page | `/`, then `n` or `N` |
+| Search all pages in the selected table, query, or table list | `/`, then `n` or `N` |
 | Enter SQL | `i` |
 | Edit a selected cell | `e` in write mode |
 | Show help | `?` or `:help` |
 | Reload or quit | `:reload` or `q` |
 
-Select a table, then press Tab to browse its rows. Mouse users can select tabs and rows, use the wheel, or drag to scroll when the terminal sends mouse events. Cycle to the details panel to inspect a cell. SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
+Select a table, then press Tab to browse its rows. Mouse users can select tabs and rows, change pages with `[<]` and `[>]`, use the wheel, or drag to scroll when the terminal sends mouse events. The page indicator uses `+` when another page is available. Search wraps across pages in the focused table list or rows. Cycle to the details panel to inspect a cell. SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
 
 ### Write data
 
@@ -78,7 +78,7 @@ The check verifies that the reader can open the database, not its integrity. Rec
 
 - Access is confined to the selected database and its WAL, SHM, and rollback-journal sidecars. Read-only WAL access may create or update the SHM sidecar.
 - Attachment, extension loading, and SQL PRAGMAs are disabled. Super-journal recovery is not supported.
-- Search covers the current page. Database paths must not contain symbolic links.
+- Database paths must not contain symbolic links.
 - The terminal must be at least 40 columns by 12 rows.
 
 See [limitations](docs/limitations.md) for input, display, and editing bounds.
