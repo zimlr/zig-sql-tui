@@ -58,6 +58,18 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 zig-out/tools/check-prose
 ```
 
+Measure repeated search latency with the disposable 373,781-row benchmark fixture:
+
+```sh
+ZSQT_TEST_EXE=zig-out/bin/zsqt \
+ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" \
+ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" \
+TMPDIR="$PWD/.zig-cache/tmp" \
+./tools/zig/zig test -O ReleaseSmall -lc tests/benchmark_search.zig vendor/sqlite/sqlite3.c
+```
+
+The benchmark reports initial search and repeated next and previous search times. Results depend on the host, terminal, and storage.
+
 Fixtures use `.zig-cache/tmp`. The diagnostics suite runs against the regular test executable. Current CI configuration also tests the static production executable and its aarch64 counterpart.
 
 CI also traces the production x86_64 executable with `ZSQT_AUDIT_EXE=zig-out/bin/zsqt`. The aarch64 jobs run the cross-compiled integration suites on native ARM. Compiler setup and build commands are in [building](docs/building.md).

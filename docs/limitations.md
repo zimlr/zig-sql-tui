@@ -8,7 +8,7 @@
 
 ## Navigation and display
 
-- Search spans pages of the selected table, query results, or table list. It matches full text values and BLOB size labels, not BLOB contents. Search and SQL result page reloads have a budget of approximately 20 million SQLite instructions. Complex or larger results can still exhaust that budget.
+- Search spans pages of the selected table, query results, or table list. It matches full text values and BLOB size labels, not BLOB contents. Each search scan and SQL result page reload has a budget of approximately 20 million SQLite instructions. Table searches can run two scans. Complex or larger results can still exhaust a scan budget.
 - Table and query pages are re-executed when navigated or searched, so concurrent changes or nondeterministic SQL can change the displayed rows.
 - Table names longer than 4096 bytes are skipped. SQLite limits tables and query results to 2000 columns. Column pagination changes the displayed subset, not the SQLite limit.
 - Grid cells show a 255-byte preview. The detail panel re-reads longer text values, but a changed or unavailable value may prevent full display.

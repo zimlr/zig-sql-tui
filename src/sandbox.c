@@ -198,10 +198,10 @@ static int prepare_editable_rows(sqlite3 *db, const char *table, sqlite3_int64 o
 int app_prepare_editable_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, sqlite3_stmt **stmt, int *has_rowid) {
     return prepare_editable_rows(db, table, offset, 0, stmt, has_rowid);
 }
-int app_prepare_search_rows(sqlite3 *db, const char *table, int writable, sqlite3_stmt **stmt, int *has_rowid) {
+int app_prepare_search_rows(sqlite3 *db, const char *table, int writable, sqlite3_int64 offset, sqlite3_stmt **stmt, int *has_rowid) {
     *has_rowid = 0;
-    return writable ? prepare_editable_rows(db, table, 0, 1, stmt, has_rowid)
-                    : prepare_rows(db, table, 0, 1, stmt);
+    return writable ? prepare_editable_rows(db, table, offset, 1, stmt, has_rowid)
+                    : prepare_rows(db, table, offset, 1, stmt);
 }
 int app_data_version(sqlite3 *db, int writable, int *version) {
     sqlite3_stmt *stmt = NULL;

@@ -12,7 +12,7 @@ extern fn app_prepare_tables(*Db, i64, *?*Stmt) c_int;
 extern fn app_prepare_rows(*Db, [*:0]const u8, i64, *?*Stmt) c_int;
 extern fn app_prepare_editable_rows(*Db, [*:0]const u8, i64, *?*Stmt, *c_int) c_int;
 extern fn app_prepare_search_tables(*Db, *?*Stmt) c_int;
-extern fn app_prepare_search_rows(*Db, [*:0]const u8, c_int, *?*Stmt, *c_int) c_int;
+extern fn app_prepare_search_rows(*Db, [*:0]const u8, c_int, i64, *?*Stmt, *c_int) c_int;
 extern fn app_data_version(*Db, c_int, *c_int) c_int;
 extern fn app_update_cell(*Db, [*:0]const u8, [*:0]const u8, i64, c_int, i64, c_int, [*:0]const u8, c_int, c_int, [*]u8, usize) c_int;
 extern fn app_prepare_statement(*Db, [*:0]const u8, *?*Stmt, c_int, *c_int) c_int;
@@ -477,11 +477,87 @@ const App = struct {
 
     const SearchMatch = struct { page: usize, index: usize, column: usize };
 
+    fn searchRow(self: *App, stmt: *Stmt, key_kind: c_int) ?usize {
+        const hidden: usize = if (key_kind == 1) 1 else 0;
+        const ncols: usize = @intCast(@max(0, sqlite3_column_count(stmt) - @as(c_int, @intCast(hidden))));
+        for (0..ncols) |col| {
+            const column: c_int = @intCast(col + hidden);
+            const cell_type = sqlite3_column_type(stmt, column);
+            var blob_label: [40]u8 = undefined;
+            const value: []const u8 = if (cell_type == 5) "NULL" else if (cell_type == 4)
+                std.fmt.bufPrint(&blob_label, "[BLOB {d} bytes]", .{@max(0, sqlite3_column_bytes(stmt, column))}) catch "[BLOB]"
+            else if (sqlite3_column_text(stmt, column)) |text|
+                text[0..@intCast(@max(0, sqlite3_column_bytes(stmt, column)))]
+            else {
+                self.setError();
+                return null;
+            };
+            if (std.mem.indexOf(u8, value, self.search.slice()) != null) return col;
+        }
+        return null;
+    }
+
+    // Skip earlier rows without inspecting their cells, preserving query order.
+    // A bounded range can return either its first or its last match.
+    fn searchRowRange(self: *App, start: usize, last: ?usize, backwards: bool) ?SearchMatch {
+        var stmt: ?*Stmt = null;
+        var key_kind: c_int = 0;
+        if (start > std.math.maxInt(i64)) {
+            self.failed = true;
+            self.message.set("Search exceeded page limit");
+            return null;
+        }
+        if (app_prepare_search_rows(self.db, self.tables[self.table_index].cstr(), if (self.writable) 1 else 0, @intCast(start), &stmt, &key_kind) != sqlite_ok or stmt == null) {
+            self.setError();
+            return null;
+        }
+        defer _ = sqlite3_finalize(stmt.?);
+        var index = start;
+        var nearest: ?SearchMatch = null;
+        while (last == null or index <= last.?) {
+            const step = sqlite3_step(stmt.?);
+            if (step == sqlite_done) return nearest;
+            if (step != sqlite_row) {
+                self.setError();
+                return null;
+            }
+            if (self.searchRow(stmt.?, key_kind)) |col| {
+                const match = SearchMatch{ .page = (index / max_rows) * max_rows, .index = index % max_rows, .column = col };
+                if (!backwards) return match;
+                nearest = match;
+            }
+            if (self.failed) return null;
+            if (index == std.math.maxInt(i64)) {
+                self.failed = true;
+                self.message.set("Search exceeded page limit");
+                return null;
+            }
+            index += 1;
+        }
+        return nearest;
+    }
+
     // A single scan preserves the page ordering without repeatedly skipping earlier rows.
     // The SQLite progress handler still limits the entire search.
     fn searchPages(self: *App, tables: bool, current: usize, backwards: bool) ?SearchMatch {
         app_navigation_begin(self.db);
         defer app_query_end(self.db);
+        if (!tables and !self.query_results and !backwards) {
+            if (current < std.math.maxInt(i64)) {
+                if (self.searchRowRange(current + 1, null, false)) |match| return match;
+                if (self.failed) return null;
+                // The wrap scan gets its own finite budget, as does the full-scan fallback.
+                app_navigation_begin(self.db);
+            }
+            return self.searchRowRange(0, current, false);
+        }
+        if (!tables and !self.query_results and backwards and current > 0) {
+            const page_start = (current / max_rows) * max_rows;
+            const nearby_start = page_start -| max_rows;
+            if (self.searchRowRange(nearby_start, current - 1, true)) |match| return match;
+            if (self.failed) return null;
+            app_navigation_begin(self.db);
+        }
         var stmt: ?*Stmt = null;
         var key_kind: c_int = 0;
         var is_write: c_int = 0;
@@ -490,7 +566,7 @@ const App = struct {
         else if (self.query_results)
             app_prepare_statement(self.db, self.active_query.cstr(), &stmt, 0, &is_write)
         else
-            app_prepare_search_rows(self.db, self.tables[self.table_index].cstr(), if (self.writable) 1 else 0, &stmt, &key_kind);
+            app_prepare_search_rows(self.db, self.tables[self.table_index].cstr(), if (self.writable) 1 else 0, 0, &stmt, &key_kind);
         if (rc != sqlite_ok or stmt == null) {
             self.setError();
             return null;
@@ -529,25 +605,8 @@ const App = struct {
                 valid += 1;
                 if (std.mem.indexOf(u8, name[0..len], self.search.slice()) != null) found = 0;
             } else {
-                const hidden: usize = if (key_kind == 1) 1 else 0;
-                const ncols: usize = @intCast(@max(0, sqlite3_column_count(stmt.?) - @as(c_int, @intCast(hidden))));
-                for (0..ncols) |col| {
-                    const column: c_int = @intCast(col + hidden);
-                    const cell_type = sqlite3_column_type(stmt.?, column);
-                    var blob_label: [40]u8 = undefined;
-                    const value: []const u8 = if (cell_type == 5) "NULL" else if (cell_type == 4)
-                        std.fmt.bufPrint(&blob_label, "[BLOB {d} bytes]", .{@max(0, sqlite3_column_bytes(stmt.?, column))}) catch "[BLOB]"
-                    else if (sqlite3_column_text(stmt.?, column)) |text|
-                        text[0..@intCast(@max(0, sqlite3_column_bytes(stmt.?, column)))]
-                    else {
-                        self.setError();
-                        return null;
-                    };
-                    if (std.mem.indexOf(u8, value, self.search.slice()) != null) {
-                        found = col;
-                        break;
-                    }
-                }
+                found = self.searchRow(stmt.?, key_kind);
+                if (self.failed) return null;
             }
             const absolute = page_offset + index;
             if (found) |col| {
