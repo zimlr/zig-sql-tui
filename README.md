@@ -22,7 +22,7 @@ tar -xzf zig-sql-tui-v1.0.0-x86_64-linux-musl.tar.gz
 ./zig-sql-tui path/to/database.sqlite
 ```
 
-Version `v1.0.0` fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for the status of the fix. Builds from the current source use the `zsqt` executable name. A Windows port is not planned.
+Version `v1.0.0` fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for the status of the fix. Builds from the current source use the `zsqt` executable name. The features and controls described below apply to current source and may differ from `v1.0.0`. A Windows port is not planned.
 
 To build from source, install Zig 0.17.1 at `tools/zig/zig` and run:
 
@@ -54,8 +54,9 @@ The title shows the database path, focused panel, interaction mode, and access s
 | Edit a selected cell | `e` in write mode |
 | Show help | `?` or `:help` |
 | Reload or quit | `:reload` or `q` |
+| Complete commands | `Tab` after `:` and repeat to cycle matches |
 
-Select a table, then press Tab to browse its rows. Mouse users can select tabs and rows, change pages with `[<]` and `[>]`, use the wheel, or drag to scroll when the terminal sends mouse events. The page indicator uses `+` when another page is available. Search wraps across pages in the focused table list or rows. Cycle to the details panel to inspect a cell. SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
+Select a table, then press Tab to browse its rows. Mouse users can select tabs and rows, change pages with `[<]` and `[>]`, use the wheel, or drag to scroll when the terminal sends mouse events. Each wheel or drag motion event moves at most one item. The page indicator uses `+` when another page is available. Search wraps across pages in the focused table list or rows. Cycle to the details panel to inspect a cell. SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
 
 ### Write data
 

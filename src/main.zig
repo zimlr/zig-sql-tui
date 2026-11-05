@@ -111,6 +111,8 @@ const App = struct {
     message: Text = .{},
     input: InputText = .{},
     search: InputText = .{},
+    completion_prefix: InputText = .{},
+    completion_index: ?usize = null,
     query: InputText = .{},
     active_query: InputText = .{},
     cell_value: InputText = .{},
@@ -810,7 +812,26 @@ const App = struct {
         self.input.set(self.cells[self.row_index][self.column_index].slice());
     }
 
+    fn completeCommand(self: *App) void {
+        const commands = [_][]const u8{ "help", "null", "reload", "set ro", "set readonly", "set rw", "set write", "q", "quit" };
+        if (self.completion_index == null) self.completion_prefix.set(self.input.slice());
+        const first = if (self.completion_index) |index| (index + 1) % commands.len else 0;
+        for (0..commands.len) |offset| {
+            const index = (first + offset) % commands.len;
+            if (std.mem.startsWith(u8, commands[index], self.completion_prefix.slice())) {
+                self.input.set(commands[index]);
+                self.completion_index = index;
+                return;
+            }
+        }
+    }
+
     fn inputKey(self: *App, ch: u8) void {
+        if (ch == 9 and self.mode == .command) {
+            if (!self.input.truncated) self.completeCommand();
+            return;
+        }
+        self.completion_index = null;
         if (ch == 27) {
             self.mode = .normal;
             return;
@@ -1198,7 +1219,7 @@ fn draw(a: *App) void {
         printAt(6, 1, a.cols, "gg/G or Home/End: first/last");
         printAt(7, 1, a.cols, "/: search   n/N: next/previous match");
         printAt(8, 1, a.cols, "i: SQL   e: edit cell   Esc: cancel");
-        printAt(9, 1, a.cols, ":set rw/ro  :null  :reload  q: quit");
+        printAt(9, 1, a.cols, ": commands (Tab: complete)  q: quit");
         printAt(10, 1, a.cols, "PgUp/PgDn: scroll   []: page   <>: columns");
         printAt(11, 1, a.cols, "Mouse: tabs, rows, wheel, drag to scroll");
         return;
@@ -1237,7 +1258,7 @@ fn draw(a: *App) void {
         printAt(a.height - 2, 1, a.cols, a.message.slice());
         printAt(a.height - 1, 1, a.cols, if (a.writable) "Tab: panel []:page e:edit ?:help q:quit" else "Tab: panel []:page i:SQL ?:help q:quit");
     } else {
-        const prompt: []const u8 = if (a.input.truncated) "Input limit reached. Shorten or clear input" else if (!std.unicode.utf8ValidateSlice(a.input.slice())) "Invalid UTF-8. Correct or clear input" else "Append-only Enter:go Esc:cancel ^U:clear";
+        const prompt: []const u8 = if (a.input.truncated) "Input limit reached. Shorten or clear input" else if (!std.unicode.utf8ValidateSlice(a.input.slice())) "Invalid UTF-8. Correct or clear input" else if (a.mode == .command) "Tab: complete  Enter: go  Esc: cancel  ^U: clear" else "Append-only Enter:go Esc:cancel ^U:clear";
         printAt(a.height - 2, 1, a.cols, prompt);
         const label: []const u8 = switch (a.mode) {
             .command => ":",
@@ -1271,13 +1292,13 @@ fn pointer(a: *App, sequence: []const u8, final: c_int) void {
     if ((button & 64) != 0) {
         const geometry = layout(a);
         if (geometry.multi and x <= geometry.table_width) a.focus = .tables else if (geometry.three and x >= geometry.detail_col) a.focus = .details else if (geometry.multi and a.focus != .details) a.focus = .rows;
-        a.move(if ((button & 1) == 0) -3 else 3);
+        a.move(if ((button & 1) == 0) -1 else 1);
         return;
     }
     if ((button & 32) != 0) {
         if (drag_y) |previous| {
             const delta = @as(isize, @intCast(previous)) - @as(isize, @intCast(y));
-            if (delta != 0) a.move(delta);
+            if (delta != 0) a.move(if (delta < 0) -1 else 1);
             drag_y = y;
         }
         return;

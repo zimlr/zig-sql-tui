@@ -64,6 +64,14 @@ def markdown_files():
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--text":
+        errors = check_text(sys.argv[2])
+        for line, message in errors:
+            print(f"{line}: {message}")
+        return int(bool(errors))
+    if len(sys.argv) != 1:
+        print("Usage: check_prose.py [--text TEXT]", file=sys.stderr)
+        return 2
     failed = False
     for path in markdown_files():
         for line, message in check_text(path.read_text(encoding="utf-8")):

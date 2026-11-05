@@ -4,7 +4,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 ## Findings
 
-- [x] Escape SQLite error text before terminal output. A malformed schema could inject terminal controls through startup errors. `tests/test_live_audit.py` covers the reported path.
+- [x] Escape SQLite error text before terminal output. A malformed schema could inject terminal controls through startup errors. `tests/test_live_audit.zig` covers the reported path.
 - [x] Synchronize the database directory when SQLite requests it after journal deletion. `tests/security.c` verifies the call and an injected synchronization failure.
 - [x] Block confirmation while the terminal is below the minimum size. Terminal tests cover pending writes and recovery.
 - [x] Consume complete and fragmented terminal escape sequences without interpreting trailing bytes as commands. Preserve a key following Esc. Terminal tests cover input and confirmation modes.
@@ -16,17 +16,17 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 ## Coverage
 
 - [x] Review project-owned Markdown and run the mechanical prose check. Third-party SQLite license text remains unchanged.
-- [x] Exercise the x86_64 release binary in terminal sessions with rollback and WAL databases.
+- [x] Exercise an x86_64 Linux binary in terminal sessions with rollback and WAL databases.
 - [x] Cover navigation, search, help, resizing, queries, access changes, edits, paging, and recovery.
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
 - [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check confirmation, cleanup, symlink rejection, and restricted syscalls.
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
-- [x] Test SemVer parsing, precedence, release history, and changed-content checks. Mock the release publication commands and verify archive checksums.
+- [x] Test SemVer parsing, precedence, release history, and changed-content checks against isolated Git repositories.
 - [x] Run the release workflow on GitHub after an explicit user request. The initial release completed in [CI run 41923948348](https://github.com/zimlr/zsqt/actions/runs/41923948348).
 - [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41926400379](https://github.com/zimlr/zsqt/actions/runs/41926400379). Syscall tracing remains limited to x86_64.
 - [x] Package the aarch64 Linux executable with the pinned Termux build system. The packaging job passed in [CI run 41917316005](https://github.com/zimlr/zsqt/actions/runs/41917316005).
-- [x] Open a database and display the TUI with the packaged ARM64 test binary in Termux on Android 13. The result is a user report.
+- [x] Open a database and use touch, scrolling, Home, End, Page Up, and Page Down in Termux on Android 13. The result is a user report for a later ARM64 test build.
 - [x] Run the isolated diagnostics build in Termux on Android 13. A user reported passing read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup.
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
@@ -35,18 +35,31 @@ The prose checker covers project-owned Markdown and skips code spans and fenced 
 
 ## Running tests
 
-Build the x86_64 executable before running the security boundary and integration tests:
+The Zig test step runs the Zig suites and the existing C security harness. It builds a separate test executable without replacing `zig-out/bin/zsqt`. On Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Python tools, so Python 3 and Git are required.
 
 ```sh
+mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp
 python3 tools/check_prose.py
 ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" \
 ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" \
 TMPDIR="$PWD/.zig-cache/tmp" \
 ./tools/zig/zig build test -Doptimize=ReleaseSmall
-python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Fixtures remain under `.zig-cache/tmp`. Compiler setup and build commands are in [building](docs/building.md).
+Fixtures use `.zig-cache/tmp`. The diagnostics suite skips the debug-build cases unless `ZSQT_DEBUG_EXE` names a diagnostics executable. CI builds that executable separately and runs the complete diagnostics suite. To repeat it locally, build both the production and diagnostics executables:
+
+```sh
+export ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global"
+export ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local"
+export TMPDIR="$PWD/.zig-cache/tmp"
+./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
+./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true -Ddiagnostics=true --prefix .zig-cache/debug-x86
+ZSQT_TEST_EXE="$PWD/zig-out/bin/zsqt" \
+ZSQT_DEBUG_EXE="$PWD/.zig-cache/debug-x86/bin/zsqt" \
+./tools/zig/zig test tests/test_diagnostics.zig -O ReleaseSmall -lc
+```
+
+CI also traces the production x86_64 executable with `ZSQT_AUDIT_EXE=zig-out/bin/zsqt`. The aarch64 jobs run the cross-compiled integration suites on native ARM. Compiler setup and build commands are in [building](docs/building.md).
 
 A sample database can be created with Python:
 

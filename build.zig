@@ -55,6 +55,190 @@ pub fn build(b: *std.Build) void {
     });
     const security_test = b.addExecutable(.{ .name = "security-test", .root_module = test_module });
     const run_security = b.addRunArtifact(security_test);
-    const test_step = b.step("test", "Run security boundary tests");
+    const test_step = b.step("test", "Run Zig and security boundary tests");
     test_step.dependOn(&run_security.step);
+
+    const prose_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_prose.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const prose_tests = b.addTest(.{ .root_module = prose_module });
+    test_step.dependOn(&b.addRunArtifact(prose_tests).step);
+
+    const release_policy_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_release_policy.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const release_policy_tests = b.addTest(.{ .root_module = release_policy_module });
+    test_step.dependOn(&b.addRunArtifact(release_policy_tests).step);
+
+    const diagnostics_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_diagnostics.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const diagnostics_tests = b.addTest(.{ .root_module = diagnostics_module });
+    const run_diagnostics = b.addRunArtifact(diagnostics_tests);
+    const probe_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_termux_probe.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const probe_tests = b.addTest(.{ .root_module = probe_module });
+    test_step.dependOn(&b.addRunArtifact(probe_tests).step);
+
+    const test_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "test-bin" } } });
+    run_diagnostics.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_diagnostics.step);
+    const pointer_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_pointer_navigation.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    pointer_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const pointer_tests = b.addTest(.{ .root_module = pointer_module });
+    const run_pointer = b.addRunArtifact(pointer_tests);
+    run_pointer.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_pointer.step);
+
+    const search_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_global_search.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    search_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const search_tests = b.addTest(.{ .root_module = search_module });
+    const run_search = b.addRunArtifact(search_tests);
+    run_search.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_search.step);
+
+    const key_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_without_rowid.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    key_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const key_tests = b.addTest(.{ .root_module = key_module });
+    const run_key = b.addRunArtifact(key_tests);
+    run_key.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_key.step);
+
+    const paging_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_paging.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    paging_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const paging_tests = b.addTest(.{ .root_module = paging_module });
+    const run_paging = b.addRunArtifact(paging_tests);
+    run_paging.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_paging.step);
+    const live_audit_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_live_audit.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    live_audit_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const live_audit_tests = b.addTest(.{ .root_module = live_audit_module });
+    const run_live_audit = b.addRunArtifact(live_audit_tests);
+    run_live_audit.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_live_audit.step);
+
+    const app_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_app.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    app_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const app_tests = b.addTest(.{ .root_module = app_module });
+    const run_app = b.addRunArtifact(app_tests);
+    run_app.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_app.step);
+
+    const recovery_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_recovery.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    recovery_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const recovery_tests = b.addTest(.{ .root_module = recovery_module });
+    const run_recovery = b.addRunArtifact(recovery_tests);
+    run_recovery.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_recovery.step);
+
+    const wal_write_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_wal_write.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    wal_write_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const wal_write_tests = b.addTest(.{ .root_module = wal_write_module });
+    const run_wal_write = b.addRunArtifact(wal_write_tests);
+    run_wal_write.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_wal_write.step);
+
+    const termux_restrictions_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_termux_restrictions.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    termux_restrictions_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const termux_restrictions_tests = b.addTest(.{ .root_module = termux_restrictions_module });
+    const run_termux_restrictions = b.addRunArtifact(termux_restrictions_tests);
+    run_termux_restrictions.step.dependOn(&test_exe.step);
+    test_step.dependOn(&run_termux_restrictions.step);
+
+    // The syscall audit traces a static executable to avoid loader accesses.
+    if (b.graph.host.result.os.tag == .linux and b.graph.host.result.cpu.arch == .x86_64) {
+        const audit_target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl });
+        const audit_options = b.addOptions();
+        audit_options.addOption(bool, "diagnostics", false);
+        const audit_app = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = audit_target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        audit_app.addOptions("build_options", audit_options);
+        audit_app.addIncludePath(b.path("vendor/sqlite"));
+        audit_app.addCSourceFiles(.{
+            .files = &.{ "vendor/sqlite/sqlite3.c", "src/sandbox.c", "src/live.c" },
+            .flags = &.{
+                "-DSQLITE_TEMP_STORE=3",
+                "-DSQLITE_OMIT_RANDOMNESS=1",
+                "-DSQLITE_OMIT_LOAD_EXTENSION=1",
+                "-DSQLITE_DQS=0",
+                "-DSQLITE_THREADSAFE=0",
+            },
+        });
+        const audit_exe = b.addExecutable(.{ .name = "zsqt-audit", .root_module = audit_app });
+        audit_exe.pie = true;
+        const syscall_module = b.createModule(.{
+            .root_source_file = b.path("tests/test_syscalls.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        syscall_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+        const syscall_tests = b.addTest(.{ .root_module = syscall_module });
+        const run_syscalls = b.addSystemCommand(&.{"env"});
+        run_syscalls.addPrefixedFileArg("ZSQT_AUDIT_EXE=", audit_exe.getEmittedBin());
+        run_syscalls.addFileArg(syscall_tests.getEmittedBin());
+        test_step.dependOn(&run_syscalls.step);
+    }
 }

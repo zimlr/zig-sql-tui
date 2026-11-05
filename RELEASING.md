@@ -6,7 +6,7 @@ Agents MUST NOT start a release in response to a merge, schedule, passing test, 
 
 ## Version policy
 
-Release tags use a `v` prefix followed by a [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) version. The first published release is exactly `v1.0.0`.
+Release tags use a `v` prefix followed by a [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) version. The first published release is exactly `v1.0.0`. That release uses the former `zig-sql-tui` binary and archive names, while current builds use `zsqt`.
 
 After the initial release, select the version from the compatibility impact of all changes since the highest-precedence published release:
 
