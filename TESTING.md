@@ -21,11 +21,12 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
 - [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check confirmation, cleanup, symlink rejection, and restricted syscalls.
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
+- [x] Probe 48 deterministic byte mutations and 16 invalid SQLite headers with the x86_64 `--check` binary. Invalid headers were rejected, and no tested file changed or produced a sidecar. The 48 byte mutations remained readable and do not establish database integrity.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
 - [x] Test SemVer parsing, precedence, release history, and changed-content checks against isolated Git repositories.
 - [x] Run the release workflow on GitHub after an explicit user request. The initial release completed in [CI run 41923948348](https://github.com/zimlr/zsqt/actions/runs/41923948348).
-- [x] Run the aarch64 binary on native aarch64 Linux. The ARM runner job passed in [CI run 41926400379](https://github.com/zimlr/zsqt/actions/runs/41926400379). Syscall tracing remains limited to x86_64.
-- [x] Package the aarch64 Linux executable with the pinned Termux build system. The packaging job passed in [CI run 41917316005](https://github.com/zimlr/zsqt/actions/runs/41917316005).
+- [x] Run the aarch64 binary and migrated Zig integration suites on native aarch64 Linux. [CI run 41952702794](https://github.com/zimlr/zsqt/actions/runs/41952702794) passed for commit `8645a55`. Syscall tracing remains limited to x86_64.
+- [x] Package the aarch64 Linux executable with the pinned Termux build system and run restricted-syscall tests on native ARM. [Termux compatibility run 41952702958](https://github.com/zimlr/zsqt/actions/runs/41952702958) passed for commit `8645a55`.
 - [x] Open a database and use touch, scrolling, Home, End, Page Up, and Page Down in Termux on Android 13. The result is a user report for a later ARM64 test build.
 - [x] Run the isolated diagnostics build in Termux on Android 13. A user reported passing read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup.
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
