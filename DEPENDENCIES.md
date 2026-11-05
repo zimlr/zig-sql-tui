@@ -4,8 +4,12 @@
 
 - SQLite 3.54.1 supplies the database engine. The vendored amalgamation is linked statically and remains in the public domain.
 - The [SQLite amalgamation mirror](https://github.com/fascinatingwind/sqlite3-amalgamation) supplies the source at commit `75e10863c10e714f2480554d7b8f344489b4c16c`. Verify file digests with `sha256sum -c vendor/sqlite/SHA256SUMS`.
-- Zig 0.17.1 supplies the compiler and build system. The [x86_64 compiler archive](https://github.com/vx-org/mirrors/releases/tag/zig-0.17.1) has SHA-256 `3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a`. Zig is not a runtime dependency.
+- Zig 0.17.1 supplies the compiler and build system without a runtime dependency. The [x86_64 compiler archive](https://github.com/vx-org/mirrors/releases/tag/zig-0.17.1) has SHA-256 `3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a`.
 - The [Zig npm package](https://registry.npmjs.org/@zigpm/zig-linux-x64/-/zig-linux-x64-0.17.1.tgz) supplies the compiler archive for CI. Its SHA-256 is `fa23b02630bf478a588e66aa049236e1f5b0d920e7a84dc7979400ac3eee6346`. Verify both archives before extraction and use.
+
+## Release packaging
+
+Debian package creation uses `dpkg-deb`, `readelf`, and `xz` from the build host. Draft asset verification uses `jq` and `sha256sum`. These tools are supplied by the mutable runner image and are not version-pinned. Debian package assembly and local validation operate offline. Release publication requires GitHub access.
 
 ## CI actions
 

@@ -47,6 +47,10 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 
 Use `-Dtarget=aarch64-linux-musl` to build for aarch64 Linux. The output is `zig-out/bin/zsqt`.
 
+## Debian packages
+
+The release workflow builds Debian packages for `amd64` and `arm64` from the corresponding static Linux executables. Package assembly requires `dpkg-deb`, `readelf`, `xz`, and the project tools. The package output uses `/usr` paths and is not a Termux package. See [release procedure](../RELEASING.md) for version mapping and asset verification.
+
 ## Implementation
 
-SQLite is compiled into the executable from the vendored amalgamation. The TUI is implemented in the repository without a third-party TUI library. In particular, libvaxis is not a dependency. Zig integration tests and the C security harness run through the test build step described in [testing](../TESTING.md).
+SQLite is compiled into the executable from the vendored amalgamation. The repository implements the TUI without a third-party TUI library. Zig integration tests and the C security harness run through the test build step described in [testing](../TESTING.md).

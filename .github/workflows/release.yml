@@ -117,6 +117,8 @@ jobs:
       - name: Build aarch64
         run: ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/arm-output
       - name: Verify and collect release binaries
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           mkdir -p .zig-cache/release-candidates
           cp zig-out/bin/zsqt .zig-cache/release-candidates/zsqt-x86_64-linux-musl
@@ -129,6 +131,20 @@ jobs:
             if grep -q INTERP <<< "$programs"; then exit 1; fi
             if grep -q '(NEEDED)' <<< "$dynamic"; then exit 1; fi
           done
+          ./tools/package_deb.sh "$VERSION" amd64 zig-out/bin/zsqt ".zig-cache/release-candidates/zsqt-$VERSION-amd64.deb"
+          ./tools/package_deb.sh "$VERSION" arm64 .zig-cache/arm-output/bin/zsqt ".zig-cache/release-candidates/zsqt-$VERSION-arm64.deb"
+          root="$PWD/.zig-cache/deb-root"
+          stubs="$PWD/.zig-cache/deb-stubs"
+          mkdir -p "$root/var/lib/dpkg" "$stubs"
+          : > "$root/var/lib/dpkg/status"
+          printf '#!/bin/sh\nexit 99\n' > "$stubs/ldconfig"
+          cp "$stubs/ldconfig" "$stubs/start-stop-daemon"
+          chmod +x "$stubs/ldconfig" "$stubs/start-stop-daemon"
+          PATH="$stubs:$PATH" dpkg --root="$root" --log="$PWD/.zig-cache/deb-dpkg.log" --force-not-root --install ".zig-cache/release-candidates/zsqt-$VERSION-amd64.deb"
+          cmp "$root/usr/bin/zsqt" zig-out/bin/zsqt
+          ZSQT_TEST_EXE="$root/usr/bin/zsqt" ./tools/zig/zig test tests/test_live_audit.zig vendor/sqlite/sqlite3.c -O ReleaseSmall -lc
+          ZSQT_TEST_EXE="$root/usr/bin/zsqt" ./tools/zig/zig test tests/test_global_search.zig vendor/sqlite/sqlite3.c -O ReleaseSmall -lc
+          ZSQT_AUDIT_EXE="$root/usr/bin/zsqt" ./tools/zig/zig test tests/test_syscalls.zig vendor/sqlite/sqlite3.c -O ReleaseSmall -lc
           ./tools/zig/zig test tests/test_termux_probe.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/termux-probe-test
           ./tools/zig/zig build-exe tools/check_termux_candidate.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc -femit-bin=.zig-cache/release-candidates/check-termux-candidate
           ./tools/zig/zig test tests/test_termux_tool.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/termux-tool-test
@@ -167,6 +183,21 @@ jobs:
         with:
           name: release-candidates
           path: .zig-cache/release-candidates
+      - name: Install aarch64 Debian package into isolated root
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          (cd .zig-cache/release-candidates && sha256sum -c SHA256SUMS)
+          root="$PWD/.zig-cache/deb-root"
+          stubs="$PWD/.zig-cache/deb-stubs"
+          mkdir -p "$root/var/lib/dpkg" "$stubs"
+          : > "$root/var/lib/dpkg/status"
+          printf '#!/bin/sh\nexit 99\n' > "$stubs/ldconfig"
+          cp "$stubs/ldconfig" "$stubs/start-stop-daemon"
+          chmod +x "$stubs/ldconfig" "$stubs/start-stop-daemon"
+          PATH="$stubs:$PATH" dpkg --root="$root" --log="$PWD/.zig-cache/deb-dpkg.log" --force-not-root --install ".zig-cache/release-candidates/zsqt-$VERSION-arm64.deb"
+          cmp "$root/usr/bin/zsqt" .zig-cache/release-candidates/zsqt-aarch64-linux-musl
       - name: Test aarch64 Linux binary
         run: |
           test "$(uname -m)" = aarch64
@@ -180,13 +211,13 @@ jobs:
           ZSQT_RELEASE_POLICY=.zig-cache/release-candidates/release-policy-aarch64 .zig-cache/release-candidates/release-policy-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/diagnostics-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/pointer-navigation-test
-          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/global-search-test
+          ZSQT_TEST_EXE="$PWD/.zig-cache/deb-root/usr/bin/zsqt" .zig-cache/release-candidates/global-search-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/without-rowid-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/paging-test
-          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/live-audit-test
+          ZSQT_TEST_EXE="$PWD/.zig-cache/deb-root/usr/bin/zsqt" .zig-cache/release-candidates/live-audit-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/app-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/recovery-test
-          ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/wal-write-test
+          ZSQT_TEST_EXE="$PWD/.zig-cache/deb-root/usr/bin/zsqt" .zig-cache/release-candidates/wal-write-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/termux-restrictions-test
 
   publish:
@@ -217,6 +248,7 @@ jobs:
           test "$current" = "$GITHUB_SHA" || { echo 'Default branch advanced. Start a new release run.' >&2; exit 1; }
           mkdir -p .zig-cache/tmp .zig-cache/release
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > .zig-cache/tmp/releases.json
+          jq -s '[.[][] | select(.draft == false) | [.id, .tag_name]] | sort' .zig-cache/tmp/releases.json > .zig-cache/tmp/release-snapshot.json
           (cd .zig-cache/release-candidates && sha256sum -c SHA256SUMS)
           chmod +x .zig-cache/release-candidates/release-policy-x86_64
           policy=$(.zig-cache/release-candidates/release-policy-x86_64 "$VERSION" --releases .zig-cache/tmp/releases.json --commit "$GITHUB_SHA")
@@ -235,7 +267,9 @@ jobs:
             cp vendor/sqlite/LICENSE.md "$dir/SQLITE-LICENSE.md"
             tar -czf ".zig-cache/release/zsqt-$VERSION-$arch-linux-musl.tar.gz" -C "$dir" .
           done
-          (cd .zig-cache/release && sha256sum zsqt-*.tar.gz > SHA256SUMS)
+          cp ".zig-cache/release-candidates/zsqt-$VERSION-amd64.deb" ".zig-cache/release/zsqt-$VERSION-amd64.deb"
+          cp ".zig-cache/release-candidates/zsqt-$VERSION-arm64.deb" ".zig-cache/release/zsqt-$VERSION-arm64.deb"
+          (cd .zig-cache/release && sha256sum "zsqt-$VERSION-x86_64-linux-musl.tar.gz" "zsqt-$VERSION-aarch64-linux-musl.tar.gz" "zsqt-$VERSION-amd64.deb" "zsqt-$VERSION-arm64.deb" > SHA256SUMS)
           cat > .zig-cache/tmp/release-notes.md <<'EOF'
           The aarch64 artifact targets Linux. Broader Termux compatibility remains unverified, and Android policies may cause additional failures.
           EOF
@@ -246,4 +280,11 @@ jobs:
             *) echo 'Invalid release policy output.' >&2; exit 1 ;;
           esac
           gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
-          gh release create "$VERSION" .zig-cache/release/* --verify-tag --generate-notes --notes-file .zig-cache/tmp/release-notes.md "${args[@]}"
+          gh release create "$VERSION" .zig-cache/release/* --draft --verify-tag --generate-notes --notes-file .zig-cache/tmp/release-notes.md "${args[@]}"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$VERSION" > .zig-cache/tmp/draft.json
+          bash tools/verify_release_draft.sh "$VERSION" .zig-cache/release .zig-cache/tmp/draft.json
+          current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq .sha)
+          test "$current" = "$GITHUB_SHA" || { echo 'Default branch advanced. Inspect the draft release.' >&2; exit 1; }
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -s '[.[][] | select(.draft == false) | [.id, .tag_name]] | sort' > .zig-cache/tmp/release-snapshot-after.json
+          cmp .zig-cache/tmp/release-snapshot.json .zig-cache/tmp/release-snapshot-after.json || { echo 'Release history changed. Inspect the draft release.' >&2; exit 1; }
+          gh release edit "$VERSION" --draft=false

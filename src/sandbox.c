@@ -33,22 +33,33 @@ int app_set_write_authorizer(sqlite3 *db) {
     return sqlite3_set_authorizer(db, authorizer, db);
 }
 
-int app_prepare_tables(sqlite3 *db, sqlite3_int64 offset, sqlite3_stmt **stmt) {
+static int prepare_tables(sqlite3 *db, sqlite3_int64 offset, int scan, sqlite3_stmt **stmt) {
     int rc = sqlite3_prepare_v2(db,
-        "SELECT name FROM sqlite_schema WHERE type='table' AND substr(name,1,7) COLLATE NOCASE != 'sqlite_' ORDER BY name LIMIT 129 OFFSET ?1",
+        "SELECT name FROM sqlite_schema WHERE type='table' AND substr(name,1,7) COLLATE NOCASE != 'sqlite_' ORDER BY name LIMIT ?2 OFFSET ?1",
         -1, stmt, NULL);
     if (rc == SQLITE_OK) rc = sqlite3_bind_int64(*stmt, 1, offset);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int(*stmt, 2, scan ? -1 : 129);
     if (rc != SQLITE_OK && *stmt) { sqlite3_finalize(*stmt); *stmt = NULL; }
     return rc;
 }
-int app_prepare_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, sqlite3_stmt **stmt) {
-    char *sql = sqlite3_mprintf("SELECT * FROM \"%w\" LIMIT 501 OFFSET ?1", table);
+int app_prepare_tables(sqlite3 *db, sqlite3_int64 offset, sqlite3_stmt **stmt) {
+    return prepare_tables(db, offset, 0, stmt);
+}
+int app_prepare_search_tables(sqlite3 *db, sqlite3_stmt **stmt) {
+    return prepare_tables(db, 0, 1, stmt);
+}
+static int prepare_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, int scan, sqlite3_stmt **stmt) {
+    char *sql = sqlite3_mprintf("SELECT * FROM \"%w\" LIMIT ?2 OFFSET ?1", table);
     if (!sql) return SQLITE_NOMEM;
     int rc = sqlite3_prepare_v2(db, sql, -1, stmt, NULL);
     sqlite3_free(sql);
     if (rc == SQLITE_OK) rc = sqlite3_bind_int64(*stmt, 1, offset);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int(*stmt, 2, scan ? -1 : 501);
     if (rc != SQLITE_OK && *stmt) { sqlite3_finalize(*stmt); *stmt = NULL; }
     return rc;
+}
+int app_prepare_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, sqlite3_stmt **stmt) {
+    return prepare_rows(db, table, offset, 0, stmt);
 }
 
 /* Only ordinary rowid tables support cell updates. Metadata queries are
@@ -131,21 +142,22 @@ static int get_primary_key(sqlite3 *db, const char *table, struct primary_key *k
     return rc;
 }
 static int prepare_key_rows(sqlite3 *db, const char *table, sqlite3_int64 offset,
-                            const struct primary_key *key, sqlite3_stmt **stmt) {
+                            const struct primary_key *key, int scan, sqlite3_stmt **stmt) {
     sqlite3_str *builder = sqlite3_str_new(db);
     sqlite3_str_appendf(builder, "SELECT * FROM main.\"%w\" ORDER BY ", table);
     for (int i = 0; i < key->count; ++i)
         sqlite3_str_appendf(builder, "%s\"%w\" COLLATE BINARY", i ? "," : "", key->names[i]);
-    sqlite3_str_appendall(builder, " LIMIT 501 OFFSET ?1");
+    sqlite3_str_appendall(builder, " LIMIT ?2 OFFSET ?1");
     char *sql = sqlite3_str_finish(builder);
     if (!sql) return SQLITE_NOMEM;
     int rc = sqlite3_prepare_v2(db, sql, -1, stmt, NULL);
     sqlite3_free(sql);
     if (rc == SQLITE_OK) rc = sqlite3_bind_int64(*stmt, 1, offset);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int(*stmt, 2, scan ? -1 : 501);
     if (rc != SQLITE_OK && *stmt) { sqlite3_finalize(*stmt); *stmt = NULL; }
     return rc;
 }
-int app_prepare_editable_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, sqlite3_stmt **stmt, int *has_rowid) {
+static int prepare_editable_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, int scan, sqlite3_stmt **stmt, int *has_rowid) {
     const char *alias = NULL;
     *stmt = NULL;
     *has_rowid = 0;
@@ -155,32 +167,41 @@ int app_prepare_editable_rows(sqlite3 *db, const char *table, sqlite3_int64 offs
     if (without_rowid || (ordinary_table && !alias)) {
         struct primary_key key;
         rc = get_primary_key(db, table, &key, !without_rowid);
-        if (rc == SQLITE_CONSTRAINT || rc == SQLITE_ERROR) return app_prepare_rows(db, table, offset, stmt);
+        if (rc == SQLITE_CONSTRAINT || rc == SQLITE_ERROR) return prepare_rows(db, table, offset, scan, stmt);
         if (rc != SQLITE_OK) return rc;
         if (key.count > 900) {
             free_primary_key(&key);
-            return app_prepare_rows(db, table, offset, stmt);
+            return prepare_rows(db, table, offset, scan, stmt);
         }
-        rc = prepare_key_rows(db, table, offset, &key, stmt);
+        rc = prepare_key_rows(db, table, offset, &key, scan, stmt);
         free_primary_key(&key);
         if (rc == SQLITE_OK && *stmt) {
             *has_rowid = 2;
             return SQLITE_OK;
         }
-        if (rc == SQLITE_TOOBIG || rc == SQLITE_ERROR) return app_prepare_rows(db, table, offset, stmt);
+        if (rc == SQLITE_TOOBIG || rc == SQLITE_ERROR) return prepare_rows(db, table, offset, scan, stmt);
         return rc;
     }
     if (alias) {
-        char *sql = sqlite3_mprintf("SELECT \"%w\", * FROM \"%w\" LIMIT 501 OFFSET ?1", alias, table);
+        char *sql = sqlite3_mprintf("SELECT \"%w\", * FROM \"%w\" LIMIT ?2 OFFSET ?1", alias, table);
         if (!sql) return SQLITE_NOMEM;
         rc = sqlite3_prepare_v2(db, sql, -1, stmt, NULL);
         sqlite3_free(sql);
         if (rc == SQLITE_OK && *stmt) rc = sqlite3_bind_int64(*stmt, 1, offset);
+        if (rc == SQLITE_OK && *stmt) rc = sqlite3_bind_int(*stmt, 2, scan ? -1 : 501);
         if (rc == SQLITE_OK && *stmt) { *has_rowid = 1; return SQLITE_OK; }
         if (*stmt) sqlite3_finalize(*stmt);
         *stmt = NULL;
     }
-    return app_prepare_rows(db, table, offset, stmt);
+    return prepare_rows(db, table, offset, scan, stmt);
+}
+int app_prepare_editable_rows(sqlite3 *db, const char *table, sqlite3_int64 offset, sqlite3_stmt **stmt, int *has_rowid) {
+    return prepare_editable_rows(db, table, offset, 0, stmt, has_rowid);
+}
+int app_prepare_search_rows(sqlite3 *db, const char *table, int writable, sqlite3_int64 offset, sqlite3_stmt **stmt, int *has_rowid) {
+    *has_rowid = 0;
+    return writable ? prepare_editable_rows(db, table, offset, 1, stmt, has_rowid)
+                    : prepare_rows(db, table, offset, 1, stmt);
 }
 int app_data_version(sqlite3 *db, int writable, int *version) {
     sqlite3_stmt *stmt = NULL;
@@ -235,9 +256,18 @@ static int progress(void *remaining) {
     return --*budget <= 0;
 }
 static int query_budget;
-void app_query_begin(sqlite3 *db) {
-    query_budget = 2000;
+static void query_begin(sqlite3 *db, int budget) {
+    query_budget = budget;
     sqlite3_progress_handler(db, 1000, progress, &query_budget);
+}
+void app_query_begin(sqlite3 *db) {
+    query_begin(db, 2000);
+}
+/* A full scan or a distant query page can require more work than a single
+ * query page. The larger navigation budget remains finite and independent
+ * of the limits used for initial user queries and writes. */
+void app_navigation_begin(sqlite3 *db) {
+    query_begin(db, 20000);
 }
 void app_query_end(sqlite3 *db) {
     sqlite3_progress_handler(db, 0, NULL, NULL);
@@ -317,7 +347,7 @@ int app_update_cell(sqlite3 *db, const char *table, const char *column, sqlite3_
         }
         rc = get_primary_key(db, table, &key, !without_rowid);
         if (rc != SQLITE_OK) goto rollback;
-        rc = prepare_key_rows(db, table, page_offset, &key, &row);
+        rc = prepare_key_rows(db, table, page_offset, &key, 0, &row);
         if (rc != SQLITE_OK) goto rollback;
         app_query_begin(db);
         for (int i = 0; i <= page_row; ++i) {

@@ -8,7 +8,7 @@
 
 ## Navigation and display
 
-- Search spans pages of the selected table, query results, or table list. It matches full text values and BLOB size labels, not BLOB contents. The query execution budget can interrupt a search before all pages are scanned.
+- Search spans pages of the selected table, query results, or table list. It matches full text values and BLOB size labels, not BLOB contents. Each search scan and SQL result page reload has a budget of approximately 20 million SQLite instructions. Table searches can run two scans. Complex or larger results can still exhaust a scan budget.
 - Table and query pages are re-executed when navigated or searched, so concurrent changes or nondeterministic SQL can change the displayed rows.
 - Table names longer than 4096 bytes are skipped. SQLite limits tables and query results to 2000 columns. Column pagination changes the displayed subset, not the SQLite limit.
 - Grid cells show a 255-byte preview. The detail panel re-reads longer text values, but a changed or unavailable value may prevent full display.
@@ -19,8 +19,8 @@
 ## Input and editing
 
 - Input is append-only and ignores arrow keys. Command completion cycles through matching commands with Tab. SQL entry accepts one statement of up to 4096 UTF-8 bytes.
-- Cell editing supports ordinary rowid and WITHOUT ROWID tables. Rowid tables with shadowed aliases require a non-null primary key.
-- Cell editing is unavailable for rowid tables with 2000 columns and WITHOUT ROWID tables with more than 900 primary-key columns.
+- Ordinary rowid and WITHOUT ROWID tables support cell editing. Rowid tables with shadowed aliases require a non-null primary key.
+- Cell editing is unavailable for a 2000-column rowid table or a WITHOUT ROWID table with more than 900 primary-key columns.
 - BLOB editing accepts up to 2048 bytes as hexadecimal. Editing a NULL cell replaces it with text.
 - SQL is required to insert control characters or edit NUL-containing text, text exceeding 4096 bytes, larger BLOBs, and column names exceeding 255 bytes.
-- SQLite limits schema SQL to 1 MiB. Queries have an execution budget and a 16 MiB value limit.
+- SQLite limits schema SQL to 1 MiB. Initial queries and writes have an execution budget of approximately two million SQLite instructions. SQLite values are limited to 16 MiB.

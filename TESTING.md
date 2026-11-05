@@ -4,10 +4,14 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 ## Findings
 
-- [x] Reject nonregular release-history input without blocking. `tests/test_release_policy.zig` covers a named pipe.
-- [x] Reject symbolic links to Markdown files and nonregular Markdown files in the prose scan. `tests/test_prose.zig` covers symlinks and named pipes without following or blocking on them.
-- [x] Reject symbolic links and group-writable or world-writable cache directories during Termux probe setup. The check assumes the workspace is not modified concurrently by the same user.
-- [x] Reject workspace paths that can be split or expanded by the upstream Termux PIE script. The Zig probe fails before running the script when its temporary path contains whitespace or glob characters.
+- [x] Build and install an amd64 Debian package into an isolated dpkg root. The installed executable runs terminal and read-only tests without accessing the host package database.
+- [x] Reject package architecture mismatches, invalid tags, symbolic links, existing output files, and altered release draft assets. The test uses disposable files and no published release.
+- [x] Check Debian version ordering against SemVer prereleases, including alphanumeric identifiers and build metadata.
+- [x] Replace repeated page scans during search with a single bounded scan. Terminal fixtures cover distant matches in a 40,000-row, 40-column table and a 373,781-row, 12-column table. The navigation budget remains finite.
+- [x] Release-history validation rejects nonregular input without blocking. `tests/test_release_policy.zig` covers a named pipe.
+- [x] Markdown scanning rejects symbolic links and nonregular files. `tests/test_prose.zig` covers symlinks and named pipes without following or blocking on them.
+- [x] Termux probe setup rejects symbolic links and group-writable or world-writable cache directories. The check assumes the workspace is not modified concurrently by the same user.
+- [x] Workspace paths that can be split or expanded by the upstream Termux PIE script are rejected. The Zig probe fails before running the script when its temporary path contains whitespace or glob characters.
 - [x] Escape SQLite error text before terminal output. A malformed schema could inject terminal controls through startup errors. `tests/test_live_audit.zig` covers the reported path.
 - [x] Synchronize the database directory when SQLite requests it after journal deletion. `tests/security.c` verifies the call and an injected synchronization failure.
 - [x] Block confirmation while the terminal is below the minimum size. Terminal tests cover pending writes and recovery.
@@ -19,12 +23,12 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 ## Coverage
 
-- [x] Review project-owned Markdown and run the mechanical prose check. Third-party SQLite license text remains unchanged.
+- [x] Run the mechanical prose check on project-owned Markdown. An earlier manual review missed style violations. Third-party SQLite license text remains unchanged.
 - [x] Exercise an x86_64 Linux binary in terminal sessions with rollback and WAL databases.
 - [x] Cover navigation, search, help, resizing, queries, access changes, edits, paging, and recovery.
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
 - [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check explicit debug authorization, cleanup, symlink rejection, and restricted syscalls.
-- [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
+- [x] Trace selected filesystem and network syscalls during read checks, cross-page searches, and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
 - [x] Verify transferred executable checksums and reject a modified test helper in a local manifest check. These checksums detect mismatches but do not authenticate an artifact and manifest obtained together.
 - [x] Run the integration, diagnostic, restricted-syscall, release-policy, completion, and prose suites against the current x86_64 build. The checks cover their tested inputs and paths, not all possible behavior.
 - [x] Probe 48 deterministic byte mutations and 16 invalid SQLite headers with the x86_64 `--check` binary. Invalid headers were rejected, and no tested file changed or produced a sidecar. The earlier 48 byte mutations remained readable and do not establish database integrity. `tests/test_app.zig` repeats these checks with a separate fixture.
@@ -38,11 +42,11 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
-The prose checker covers project-owned Markdown and skips code spans and fenced code. Markdown file symlinks, nonregular Markdown files, and input files exceeding 64 MiB are rejected. Directory symlinks are not traversed. File checks require Linux `statx` and assume the workspace is not modified concurrently. The checker covers selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
+The prose checker covers selected mechanical rules in project-owned Markdown and skips code spans and fenced code. Markdown file symlinks, nonregular Markdown files, and input files exceeding 64 MiB are rejected. Directory symlinks are not traversed. File checks require Linux `statx` and assume the workspace is not modified concurrently. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
 
 ## Running tests
 
-The Zig test step runs the Zig suites and the existing C security harness. It builds a separate test executable without replacing `zig-out/bin/zsqt`. On Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Zig tools. Git is required for release-policy tests.
+The Zig test step runs the Zig suites and the existing C security harness. Linux x86_64 tests also require `dpkg`, `dpkg-deb`, `readelf`, `xz`, and `jq` for Debian package validation. It builds a separate test executable without replacing `zig-out/bin/zsqt`. On Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Zig tools. Git is required for release-policy tests.
 
 ```sh
 mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp
@@ -57,7 +61,21 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 zig-out/tools/check-prose
 ```
 
+Measure repeated search latency with the disposable 373,781-row benchmark fixture:
+
+```sh
+ZSQT_TEST_EXE=zig-out/bin/zsqt \
+ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" \
+ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" \
+TMPDIR="$PWD/.zig-cache/tmp" \
+./tools/zig/zig test -O ReleaseSmall -lc tests/benchmark_search.zig vendor/sqlite/sqlite3.c
+```
+
+The benchmark reports initial search and repeated next and previous search times. Results depend on the host, terminal, and storage.
+
 Fixtures use `.zig-cache/tmp`. The diagnostics suite runs against the regular test executable. Current CI configuration also tests the static production executable and its aarch64 counterpart.
+
+CI builds Debian test packages for both architectures. The native ARM job installs the `arm64` package into an isolated root and tests its executable. These checks do not install packages into the runner system or validate Android Termux.
 
 CI also traces the production x86_64 executable with `ZSQT_AUDIT_EXE=zig-out/bin/zsqt`. The aarch64 jobs run the cross-compiled integration suites on native ARM. Compiler setup and build commands are in [building](docs/building.md).
 

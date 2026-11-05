@@ -78,6 +78,16 @@ test "flags repeated sentence openings" {
     try std.testing.expectEqual(0, valid.exit_code);
 }
 
+test "detects repeated openings across paragraph lines" {
+    const invalid = try check("The reader opens a database.\nThe reader displays its tables.\n");
+    try std.testing.expectEqual(1, invalid.exit_code);
+    try std.testing.expect(std.mem.indexOf(u8, invalid.output[0..invalid.len], "2: repeated sentence opening: the") != null);
+    const separate = try check("The reader opens a database.\n\nThe reader displays its tables.\n");
+    try std.testing.expectEqual(0, separate.exit_code);
+    const list = try check("- The reader opens a database.\n- The reader displays its tables.\n");
+    try std.testing.expectEqual(0, list.exit_code);
+}
+
 test "flags unclosed fences" {
     const result = try check("```sh\necho test\n");
     try std.testing.expectEqual(1, result.exit_code);

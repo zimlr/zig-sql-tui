@@ -52,6 +52,18 @@ test "query and table name search" {
     try t.quit();
 }
 
+test "forward search respects descending query order and wrap" {
+    var db = try searchFixture();
+    defer db.deinit();
+    const t = try support.Terminal.init(@ptrCast(&db.path));
+    defer t.deinit();
+    try t.send("iSELECT c0, c39 FROM data ORDER BY rowid DESC\r", "Read-only query results");
+    try t.send("/needle\r", "Row 600  Column 2/2");
+    try t.send("n", "Row 1  Column 2/2");
+    try t.send("n", "Row 600  Column 2/2");
+    try t.quit();
+}
+
 test "search last column at SQLite limit" {
     var db = try support.Fixture.init("CREATE TABLE placeholder(v)");
     defer db.deinit();
@@ -81,7 +93,7 @@ test "interrupted search does not report no match" {
     defer db.deinit();
     const t = try support.Terminal.init(@ptrCast(&db.path));
     defer t.deinit();
-    try t.send("iWITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1000000) SELECT x FROM n\r", "Read-only query results");
+    try t.send("iWITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000000) SELECT x FROM n\r", "Read-only query results");
     try t.send("/not-present\r", "interrupted");
     try std.testing.expect(std.mem.indexOf(u8, t.output[0..t.len], "No match") == null);
     try t.quit();
@@ -136,5 +148,97 @@ test "write mode search retains edit key" {
     try t.send("\x15changed\r", "Save cell change?");
     try t.send("y", "Cell update committed");
     try db.expectValue("SELECT c39 FROM data WHERE rowid=1101", "changed");
+    try t.quit();
+}
+
+test "next search finds a distant match in a wide table" {
+    var db = try support.Fixture.init(
+        "CREATE TABLE data(c0 TEXT,c1 TEXT,c2 TEXT,c3 TEXT,c4 TEXT,c5 TEXT,c6 TEXT,c7 TEXT,c8 TEXT,c9 TEXT,c10 TEXT,c11 TEXT,c12 TEXT,c13 TEXT,c14 TEXT,c15 TEXT,c16 TEXT,c17 TEXT,c18 TEXT,c19 TEXT,c20 TEXT,c21 TEXT,c22 TEXT,c23 TEXT,c24 TEXT,c25 TEXT,c26 TEXT,c27 TEXT,c28 TEXT,c29 TEXT,c30 TEXT,c31 TEXT,c32 TEXT,c33 TEXT,c34 TEXT,c35 TEXT,c36 TEXT,c37 TEXT,c38 TEXT,c39 TEXT);" ++
+            "WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<40000) " ++
+            "INSERT INTO data(c0) SELECT CASE WHEN i IN (2,39000) THEN 'target' ELSE 'other' END FROM n;",
+    );
+    defer db.deinit();
+    const t = try support.Terminal.init(@ptrCast(&db.path));
+    defer t.deinit();
+    try t.send("\t", "[RO] NORMAL | ROWS");
+    try t.send("/target\r", "Row 2  Column 1/40");
+    try t.send("n", "Row 39000  Column 1/40");
+    try t.send("n", "Row 2  Column 1/40");
+    try t.send("N", "Row 39000  Column 1/40");
+    try t.send("iSELECT * FROM data\r", "Read-only query results");
+    try t.send("/target\r", "Row 2  Column 1/40");
+    try t.send("n", "Row 39000  Column 1/40");
+    try t.send(":reload\r", "Database reloaded");
+    try t.send(":set rw\r", "Enable write mode");
+    try t.send("y", "Write mode enabled");
+    try t.send("/target\r", "Row 2  Column 1/40");
+    try t.send("n", "Row 39000  Column 1/40");
+    try t.send("e", "CELL> target");
+    try t.send("\x15updated\r", "Save cell change?");
+    try t.send("y", "Cell update committed");
+    try db.expectValue("SELECT c0 FROM data WHERE rowid=39000", "updated");
+    try t.quit();
+}
+
+test "table search skips oversized names across page boundaries" {
+    var db = try searchFixture();
+    defer db.deinit();
+    var sql: [4300]u8 = undefined;
+    const prefix = "CREATE TABLE \"a";
+    @memcpy(sql[0..prefix.len], prefix);
+    @memset(sql[prefix.len .. prefix.len + 4096], 'x');
+    const suffix = "\"(value);\x00";
+    @memcpy(sql[prefix.len + 4096 ..][0..suffix.len], suffix);
+    try db.exec(@ptrCast(&sql));
+    const t = try support.Terminal.init(@ptrCast(&db.path));
+    defer t.deinit();
+    try t.send("/tab129\r", "> tab129");
+    try t.send("N", "> tab129");
+    try t.quit();
+}
+
+test "search treats SQL syntax in data as text" {
+    var db = try support.Fixture.init("CREATE TABLE data(value TEXT); INSERT INTO data VALUES ('plain'), ('needle'' OR 1=1--');");
+    defer db.deinit();
+    const t = try support.Terminal.init(@ptrCast(&db.path));
+    defer t.deinit();
+    try t.send("\t", "[RO] NORMAL | ROWS");
+    try t.send("/needle' OR 1=1--\r", "Row 2  Column 1/1");
+    try t.quit();
+    try db.expectValue("SELECT count(*) FROM data", "2");
+}
+
+test "search traverses a 373781-row 12-column table" {
+    var db = try support.Fixture.init(
+        "CREATE TABLE data(c0 TEXT,c1 TEXT,c2 TEXT,c3 TEXT,c4 TEXT,c5 TEXT,c6 TEXT,c7 TEXT,c8 TEXT,c9 TEXT,c10 TEXT,c11 TEXT);" ++
+            "WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<373781) " ++
+            "INSERT INTO data SELECT CASE WHEN i=2 THEN 'target' ELSE 'ordinary' END, 'a','b','c','d','e','f','g','h','i','j', CASE WHEN i IN (373780,373781) THEN 'target' ELSE 'other' END FROM n;",
+    );
+    defer db.deinit();
+    const t = try support.Terminal.init(@ptrCast(&db.path));
+    defer t.deinit();
+    try t.send("\t", "[RO] NORMAL | ROWS");
+    try t.send("/target\r", "Row 2  Column 1/12");
+    try t.send("n", "Row 373780  Column 12/12");
+    try t.send("n", "Row 373781  Column 12/12");
+    try t.send("n", "Row 2  Column 1/12");
+    try t.send("N", "Row 373781  Column 12/12");
+    try t.send("N", "Row 373780  Column 12/12");
+    try t.send("/not-present\r", "No match");
+    try t.send("iSELECT * FROM data\r", "Read-only query results");
+    try t.send("/target\r", "Row 2  Column 1/12");
+    try t.send("n", "Row 373780  Column 12/12");
+    try t.send("n", "Row 373781  Column 12/12");
+    try t.send("n", "Row 2  Column 1/12");
+    try t.send("N", "Row 373781  Column 12/12");
+    try t.send(":reload\r", "Database reloaded");
+    try t.send(":set rw\r", "Enable write mode");
+    try t.send("y", "Write mode enabled");
+    try t.send("/target\r", "Row 2  Column 1/12");
+    try t.send("n", "Row 373780  Column 12/12");
+    try t.send("e", "CELL> target");
+    try t.send("\x15updated\r", "Save cell change?");
+    try t.send("y", "Cell update committed");
+    try db.expectValue("SELECT c11 FROM data WHERE rowid=373780", "updated");
     try t.quit();
 }

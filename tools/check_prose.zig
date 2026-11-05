@@ -178,6 +178,7 @@ fn check(alloc: Allocator, text: []const u8, prefix: []const u8) !bool {
     var fence_len: usize = 0;
     var number: usize = 0;
     var position: usize = 0;
+    var previous_line_opening: ?[]const u8 = null;
     while (nextLine(text, &position)) |line| {
         number += 1;
         var skip: usize = 0;
@@ -187,6 +188,7 @@ fn check(alloc: Allocator, text: []const u8, prefix: []const u8) !bool {
             var count: usize = 0;
             while (count < stripped.len and stripped[count] == stripped[0]) : (count += 1) {}
             if (count >= 3) {
+                previous_line_opening = null;
                 if (fence_char == 0) {
                     fence_char = stripped[0];
                     fence_len = count;
@@ -196,7 +198,14 @@ fn check(alloc: Allocator, text: []const u8, prefix: []const u8) !bool {
                 continue;
             }
         }
-        if (fence_char != 0 or std.mem.startsWith(u8, line, "    ")) continue;
+        if (fence_char != 0 or std.mem.startsWith(u8, line, "    ")) {
+            previous_line_opening = null;
+            continue;
+        }
+        const block_boundary = stripped.len == 0 or stripped[0] == '#' or stripped[0] == '|' or
+            stripped[0] == '<' or ((stripped[0] == '-' or stripped[0] == '*') and stripped.len > 1 and whitespaceAt(stripped, 1) != 0) or
+            (std.ascii.isDigit(stripped[0]) and std.mem.indexOf(u8, stripped, ". ") != null);
+        if (block_boundary) previous_line_opening = null;
         const prose = try visible(alloc, line);
         if (punctuation(prose)) |p| {
             try report(alloc, prefix, number, "prohibited punctuation: ", p);
@@ -208,7 +217,7 @@ fn check(alloc: Allocator, text: []const u8, prefix: []const u8) !bool {
         }
         var start: usize = 0;
         var i: usize = 0;
-        var previous: ?[]const u8 = null;
+        var previous: ?[]const u8 = previous_line_opening;
         while (true) {
             if (i == prose.len or (i > 0 and whitespaceAt(prose, i) != 0 and (prose[i - 1] == '.' or prose[i - 1] == '!' or prose[i - 1] == '?'))) {
                 const current = if (opening(prose[start..i])) |word| try std.ascii.allocLowerString(alloc, word) else null;
@@ -224,6 +233,8 @@ fn check(alloc: Allocator, text: []const u8, prefix: []const u8) !bool {
             }
             i += scalarAt(prose, i).?.len;
         }
+        const end = std.mem.trimEnd(u8, prose, " \t\r");
+        previous_line_opening = if (!block_boundary and end.len > 0 and (end[end.len - 1] == '.' or end[end.len - 1] == '!' or end[end.len - 1] == '?')) previous else null;
     }
     if (fence_char != 0) {
         try report(alloc, prefix, number, "unclosed code fence", "");

@@ -60,6 +60,31 @@ jobs:
           ZSQT_AUDIT_EXE=zig-out/bin/zsqt ./tools/zig/zig test tests/test_syscalls.zig vendor/sqlite/sqlite3.c -O ReleaseSmall -lc
       - name: Build aarch64
         run: ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/arm-output
+      - name: Build Debian test packages
+        run: |
+          mkdir -p .zig-cache/deb-test
+          ./tools/package_deb.sh v0.0.0-ci amd64 zig-out/bin/zsqt .zig-cache/deb-test/zsqt-amd64.deb
+          ./tools/package_deb.sh v0.0.0-ci arm64 .zig-cache/arm-output/bin/zsqt .zig-cache/deb-test/zsqt-arm64.deb
+          (cd .zig-cache/deb-test && sha256sum zsqt-*.deb > SHA256SUMS)
+          root="$PWD/.zig-cache/deb-root"
+          stubs="$PWD/.zig-cache/deb-stubs"
+          mkdir -p "$root/var/lib/dpkg" "$stubs"
+          : > "$root/var/lib/dpkg/status"
+          printf '#!/bin/sh\nexit 99\n' > "$stubs/ldconfig"
+          cp "$stubs/ldconfig" "$stubs/start-stop-daemon"
+          chmod +x "$stubs/ldconfig" "$stubs/start-stop-daemon"
+          PATH="$stubs:$PATH" dpkg --root="$root" --log="$PWD/.zig-cache/deb-dpkg.log" --force-not-root --install .zig-cache/deb-test/zsqt-amd64.deb
+          cmp "$root/usr/bin/zsqt" zig-out/bin/zsqt
+          ZSQT_TEST_EXE="$root/usr/bin/zsqt" ./tools/zig/zig test tests/test_live_audit.zig vendor/sqlite/sqlite3.c -O ReleaseSmall -lc
+          ZSQT_TEST_EXE="$root/usr/bin/zsqt" ./tools/zig/zig test tests/test_global_search.zig vendor/sqlite/sqlite3.c -O ReleaseSmall -lc
+          ZSQT_AUDIT_EXE="$root/usr/bin/zsqt" ./tools/zig/zig test tests/test_syscalls.zig vendor/sqlite/sqlite3.c -O ReleaseSmall -lc
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debian-test-packages
+          path: .zig-cache/deb-test/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
       - name: Build and test diagnostics
         run: |
           ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/debug-x86
@@ -129,6 +154,23 @@ jobs:
         with:
           name: aarch64-linux-musl-test
           path: zig-out/bin
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: debian-test-packages
+          path: .zig-cache/deb-test
+      - name: Install aarch64 Debian package into isolated root
+        run: |
+          set -eu
+          (cd .zig-cache/deb-test && sha256sum -c SHA256SUMS)
+          root="$PWD/.zig-cache/deb-root"
+          stubs="$PWD/.zig-cache/deb-stubs"
+          mkdir -p "$root/var/lib/dpkg" "$stubs"
+          : > "$root/var/lib/dpkg/status"
+          printf '#!/bin/sh\nexit 99\n' > "$stubs/ldconfig"
+          cp "$stubs/ldconfig" "$stubs/start-stop-daemon"
+          chmod +x "$stubs/ldconfig" "$stubs/start-stop-daemon"
+          PATH="$stubs:$PATH" dpkg --root="$root" --log="$PWD/.zig-cache/deb-dpkg.log" --force-not-root --install .zig-cache/deb-test/zsqt-arm64.deb
+          cmp "$root/usr/bin/zsqt" zig-out/bin/zsqt
       - name: Test aarch64 Linux binary
         run: |
           test "$(uname -m)" = aarch64
@@ -141,13 +183,13 @@ jobs:
           ZSQT_RELEASE_POLICY=zig-out/bin/release-policy ./zig-out/bin/release-policy-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/diagnostics-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/pointer-navigation-test
-          ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/global-search-test
+          ZSQT_TEST_EXE="$PWD/.zig-cache/deb-root/usr/bin/zsqt" ./zig-out/bin/global-search-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/without-rowid-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/paging-test
-          ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/live-audit-test
+          ZSQT_TEST_EXE="$PWD/.zig-cache/deb-root/usr/bin/zsqt" ./zig-out/bin/live-audit-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/app-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/recovery-test
-          ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/wal-write-test
+          ZSQT_TEST_EXE="$PWD/.zig-cache/deb-root/usr/bin/zsqt" ./zig-out/bin/wal-write-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/termux-restrictions-test
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

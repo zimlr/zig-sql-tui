@@ -110,6 +110,14 @@ const write_steps = [_]Step{
     .{ .needle = "Read-only mode enabled", .keys = "q" },
 };
 
+const search_steps = [_]Step{
+    .{ .needle = "[RO] NORMAL", .keys = "\t" },
+    .{ .needle = "[RO] NORMAL | ROWS", .keys = "/needle\r" },
+    .{ .needle = "Row 2  Column 1/1", .keys = "n" },
+    .{ .needle = "Row 502  Column 1/1", .keys = "q" },
+};
+const Mode = enum { check, write, search };
+
 const Audit = struct {
     expected: [128][]const u8 = undefined,
     expected_len: usize = 0,
@@ -187,7 +195,9 @@ fn capture(fd: c_int, output: []u8, len: *usize) !void {
     return error.OutputTooLong;
 }
 
-fn trace(db: *support.Fixture, interactive: bool) !void {
+fn trace(db: *support.Fixture, mode: Mode) !void {
+    const interactive = mode != .check;
+    const steps: []const Step = if (mode == .search) &search_steps else &write_steps;
     if (builtin.os.tag != .linux or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
     var cwd_buf: [4096]u8 = undefined;
     const cwd = c.getcwd(&cwd_buf, cwd_buf.len) orelse return error.GetCwdFailed;
@@ -266,8 +276,8 @@ fn trace(db: *support.Fixture, interactive: bool) !void {
     var entering = true;
     while (true) {
         try capture(read_fd, output, &len);
-        if (interactive and step < write_steps.len and std.mem.indexOf(u8, output[cursor..len], write_steps[step].needle) != null) {
-            const keys = write_steps[step].keys;
+        if (interactive and step < steps.len and std.mem.indexOf(u8, output[cursor..len], steps[step].needle) != null) {
+            const keys = steps[step].keys;
             if (c.write(read_fd, keys.ptr, keys.len) != keys.len) return error.WriteFailed;
             step += 1;
             cursor = len;
@@ -294,12 +304,12 @@ fn trace(db: *support.Fixture, interactive: bool) !void {
     try capture(read_fd, output, &len);
     if (status != 0) std.debug.print("Traced application exited {d}: {s}\n", .{ status, output[len -| 1000..len] });
     try std.testing.expectEqual(@as(c_int, 0), status);
-    if (interactive) try std.testing.expectEqual(write_steps.len, step);
+    if (interactive) try std.testing.expectEqual(steps.len, step);
     try std.testing.expect(audit.seen >= audit.expected_len);
     try std.testing.expectEqual(@as(usize, 1), audit.exe_count);
 }
 
-fn runModes(interactive: bool) !void {
+fn runModes(mode: Mode) !void {
     if (builtin.os.tag != .linux or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
     for ([_]bool{ false, true }) |wal| {
         var db = try support.Fixture.init("CREATE TABLE data(v)");
@@ -312,15 +322,21 @@ fn runModes(interactive: bool) !void {
         defer _ = sqlite3_close(conn.?);
         const sql = if (wal) "PRAGMA journal_mode=WAL; INSERT INTO data VALUES ('sample')" else "PRAGMA journal_mode=DELETE; INSERT INTO data VALUES ('sample')";
         if (sqlite3_exec(conn.?, sql, null, null, null) != 0) return error.SqlFailed;
-        try trace(&db, interactive);
-        if (interactive) try db.expectValue("SELECT count(*) FROM data WHERE v='write'", "1");
+        if (mode == .search and sqlite3_exec(conn.?, "DELETE FROM data; WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<600) INSERT INTO data SELECT CASE WHEN i IN (2,502) THEN 'needle' ELSE 'other' END FROM n", null, null, null) != 0) return error.SqlFailed;
+        try trace(&db, mode);
+        if (mode == .write) try db.expectValue("SELECT count(*) FROM data WHERE v='write'", "1");
+        if (mode == .search) try db.expectValue("SELECT count(*) FROM data WHERE v='needle'", "2");
     }
 }
 
 test "database check has no network or unrelated paths" {
-    try runModes(false);
+    try runModes(.check);
 }
 
 test "confirmed writes have no network or unrelated paths" {
-    try runModes(true);
+    try runModes(.write);
+}
+
+test "cross-page searches have no network or unrelated paths" {
+    try runModes(.search);
 }
