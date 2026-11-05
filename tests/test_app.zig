@@ -13,6 +13,10 @@ fn fixture() !support.Fixture {
     );
 }
 
+fn exitCode(status: c_int) c_int {
+    return (status >> 8) & 0xff;
+}
+
 fn digest(path: [*:0]const u8) ![32]u8 {
     const fd = c.open(path, .{});
     if (fd < 0) return error.OpenFailed;
@@ -309,4 +313,27 @@ test "mutated databases cannot crash or change during read-only checks" {
             try std.testing.expect(c.access(name.ptr, 0) != 0);
         }
     }
+}
+
+test "option terminator accepted before and after a mode" {
+    var db = try fixture();
+    defer db.deinit();
+    const path: [*:0]const u8 = @ptrCast(&db.path);
+    const direct = try support.runCheck(path);
+    try std.testing.expectEqual(@as(c_int, 0), direct.status);
+    const after_mode = try support.runArgs(&.{ "--check", "--", path });
+    try std.testing.expectEqual(@as(c_int, 0), after_mode.status);
+    try std.testing.expect(std.mem.indexOf(u8, after_mode.output[0..after_mode.len], "2 tables") != null);
+    const missing = try support.runArgs(&.{ "--check", "--" });
+    try std.testing.expectEqual(@as(c_int, 2), exitCode(missing.status));
+    const extra = try support.runArgs(&.{ "--check", "--", path, "extra" });
+    try std.testing.expectEqual(@as(c_int, 2), exitCode(extra.status));
+    try std.testing.expect(std.mem.indexOf(u8, extra.stderr[0..extra.stderr_len], "Only one database may be opened") != null);
+    const help = try support.runArgs(&.{"--help"});
+    try std.testing.expectEqual(@as(c_int, 0), help.status);
+    try std.testing.expect(std.mem.indexOf(u8, help.output[0..help.len], "[--] DATABASE") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help.output[0..help.len], "-- ends option parsing") != null);
+    const interactive = try support.runArgs(&.{ "--", path });
+    try std.testing.expectEqual(@as(c_int, 1), exitCode(interactive.status));
+    try std.testing.expect(std.mem.indexOf(u8, interactive.stderr[0..interactive.stderr_len], "A terminal is required") != null);
 }

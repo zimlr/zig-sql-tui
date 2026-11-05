@@ -29,6 +29,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Open a cleanly closed WAL database with no sidecars read-only. `tests/test_wal_write.zig` checks `--check` and the table view after the reader creates an empty WAL and the SHM sidecar, and fails without that handling.
 - [x] Cover navigation, search, help, resizing, queries, access changes, edits, paging, and recovery.
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
+- [x] Accept the option terminator before and after `--check` or `--recover`. `tests/test_app.zig` covers a path after the terminator, a missing path, an extra argument, and the help text.
 - [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check explicit debug authorization, cleanup, symlink rejection, and restricted syscalls.
 - [x] Trace selected filesystem and network syscalls during read checks, cross-page searches, and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
 - [x] Verify transferred artifact checksums with `sha256sum -c` and reject an altered asset whose digest does not match the local file. These checksums detect mismatches but do not authenticate an artifact and manifest obtained together.
