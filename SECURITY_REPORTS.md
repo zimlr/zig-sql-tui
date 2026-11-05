@@ -21,6 +21,6 @@ These instructions apply to agents handling private vulnerability reports and se
 ## Advisory and disclosure actions
 
 - Do not create, edit, publish, close, withdraw, or request a CVE for an advisory without explicit authorization for that action. Changing report access or inviting collaborators also requires explicit authorization.
-- Review public advisories as public information, and confirm applicability, affected versions, available fixes, and any remaining uncertainty before recommending action.
+- Review public advisories as public information. Confirm applicability, affected versions, available fixes, and any remaining uncertainty before recommending action.
 - Do not publish a release without a separate explicit request for that release. Verify that release notes, tests, and commit history are appropriate for the agreed disclosure timing.
 - When access is unavailable, report the limitation without attempting to bypass it. Never disclose credentials or request authentication secrets in chat.

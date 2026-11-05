@@ -1,10 +1,10 @@
 # Building
 
-Building requires Zig 0.17.1 at `tools/zig/zig`, and the compiler, caches, and outputs remain inside the workspace. Builds use vendored SQLite and do not download dependencies.
+Zig 0.17.1 is required at `tools/zig/zig`. The compiler, caches, and outputs remain inside the workspace. Builds use vendored SQLite and do not download dependencies.
 
 ## Compiler setup
 
-The following steps provision the pinned x86_64 Linux compiler and require Python 3, `tar`, `xz`, and `sha256sum`.
+The following steps provision the pinned x86_64 Linux compiler. Python 3, `tar`, `xz`, and `sha256sum` are required.
 
 ```sh
 (
@@ -45,7 +45,7 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
 ```
 
-Use `-Dtarget=aarch64-linux-musl` for aarch64 Linux, and the output lands at `zig-out/bin/zsqt`.
+Use `-Dtarget=aarch64-linux-musl` to build for aarch64 Linux. The output is `zig-out/bin/zsqt`.
 
 ## Debian packages
 
@@ -55,7 +55,7 @@ The release workflow builds Debian packages for `amd64` and `arm64` from the cor
 ./tools/package_deb.sh v2.0.0 amd64 zig-out/bin/zsqt .zig-cache/tmp/zsqt-v2.0.0-amd64.deb
 ```
 
-The package output uses `/usr` paths and does not target Termux, and [release procedure](../RELEASING.md) covers version mapping and asset verification.
+The package output uses `/usr` paths and is not a Termux package. See [release procedure](../RELEASING.md) for version mapping and asset verification.
 
 ## Implementation
 
