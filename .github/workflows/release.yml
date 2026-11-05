@@ -75,7 +75,7 @@ jobs:
         run: |
           sha256sum -c vendor/sqlite/SHA256SUMS
           python3 tools/check_prose.py
-          ./tools/zig/zig fmt --check build.zig src/main.zig tests/*.zig
+          ./tools/zig/zig fmt --check build.zig src/main.zig tests/*.zig tools/*.zig
       - name: Build and test x86_64
         run: |
           ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
@@ -97,6 +97,8 @@ jobs:
             if grep -q '(NEEDED)' <<< "$dynamic"; then exit 1; fi
           done
           ./tools/zig/zig test tests/test_termux_probe.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/termux-probe-test
+          ./tools/zig/zig build-exe tools/check_termux_candidate.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc -femit-bin=.zig-cache/release-candidates/check-termux-candidate
+          ./tools/zig/zig test tests/test_termux_tool.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/termux-tool-test
           ./tools/zig/zig test tests/test_release_policy.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/release-policy-test
           ./tools/zig/zig test tests/test_diagnostics.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/diagnostics-test
           ./tools/zig/zig test tests/test_pointer_navigation.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/pointer-navigation-test
@@ -108,7 +110,7 @@ jobs:
           ./tools/zig/zig test tests/test_recovery.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/recovery-test
           ./tools/zig/zig test tests/test_wal_write.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/wal-write-test
           ./tools/zig/zig test tests/test_termux_restrictions.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/release-candidates/termux-restrictions-test
-          (cd .zig-cache/release-candidates && sha256sum zsqt-* termux-probe-test release-policy-test diagnostics-test pointer-navigation-test global-search-test without-rowid-test paging-test live-audit-test app-test recovery-test wal-write-test termux-restrictions-test > SHA256SUMS)
+          (cd .zig-cache/release-candidates && sha256sum zsqt-* termux-probe-test check-termux-candidate termux-tool-test release-policy-test diagnostics-test pointer-navigation-test global-search-test without-rowid-test paging-test live-audit-test app-test recovery-test wal-write-test termux-restrictions-test > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-candidates
@@ -134,8 +136,9 @@ jobs:
           (cd .zig-cache/release-candidates && sha256sum -c SHA256SUMS)
           mkdir -p zig-out/bin .zig-cache/tmp
           cp .zig-cache/release-candidates/zsqt-aarch64-linux-musl zig-out/bin/zsqt
-          chmod +x zig-out/bin/zsqt .zig-cache/release-candidates/termux-probe-test .zig-cache/release-candidates/pointer-navigation-test .zig-cache/release-candidates/global-search-test .zig-cache/release-candidates/without-rowid-test .zig-cache/release-candidates/paging-test .zig-cache/release-candidates/live-audit-test .zig-cache/release-candidates/app-test .zig-cache/release-candidates/recovery-test .zig-cache/release-candidates/wal-write-test .zig-cache/release-candidates/release-policy-test .zig-cache/release-candidates/diagnostics-test .zig-cache/release-candidates/termux-restrictions-test
-          .zig-cache/release-candidates/termux-probe-test
+          chmod +x zig-out/bin/zsqt .zig-cache/release-candidates/termux-probe-test .zig-cache/release-candidates/pointer-navigation-test .zig-cache/release-candidates/global-search-test .zig-cache/release-candidates/without-rowid-test .zig-cache/release-candidates/paging-test .zig-cache/release-candidates/live-audit-test .zig-cache/release-candidates/app-test .zig-cache/release-candidates/recovery-test .zig-cache/release-candidates/wal-write-test .zig-cache/release-candidates/release-policy-test .zig-cache/release-candidates/diagnostics-test .zig-cache/release-candidates/termux-restrictions-test .zig-cache/release-candidates/check-termux-candidate .zig-cache/release-candidates/termux-tool-test
+          ZSQT_TERMUX_PROBE=.zig-cache/release-candidates/check-termux-candidate .zig-cache/release-candidates/termux-probe-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt ZSQT_TERMUX_PROBE=.zig-cache/release-candidates/check-termux-candidate .zig-cache/release-candidates/termux-tool-test
           .zig-cache/release-candidates/release-policy-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/diagnostics-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/pointer-navigation-test
@@ -188,6 +191,8 @@ jobs:
             cp docs/building.md docs/limitations.md "$dir/docs/"
             mkdir -p "$dir/assets"
             cp assets/zsqt-logo.png "$dir/assets/zsqt-logo.png"
+            mkdir -p "$dir/completions"
+            cp completions/zsqt.bash completions/_zsqt completions/zsqt.fish "$dir/completions/"
             cp vendor/sqlite/LICENSE.md "$dir/SQLITE-LICENSE.md"
             tar -czf ".zig-cache/release/zsqt-$VERSION-$arch-linux-musl.tar.gz" -C "$dir" .
           done

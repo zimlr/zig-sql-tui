@@ -4,9 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const strip = b.option(bool, "strip", "Strip debug symbols") orelse false;
-    const diagnostics = b.option(bool, "diagnostics", "Include the isolated database self-test") orelse false;
-    const options = b.addOptions();
-    options.addOption(bool, "diagnostics", diagnostics);
     const module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -14,11 +11,9 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
         .strip = strip,
     });
-    module.addOptions("build_options", options);
     module.addIncludePath(b.path("vendor/sqlite"));
-    if (diagnostics) module.addCSourceFile(.{ .file = b.path("src/diagnostics.c"), .flags = &.{} });
     module.addCSourceFiles(.{
-        .files = &.{ "vendor/sqlite/sqlite3.c", "src/sandbox.c", "src/live.c" },
+        .files = &.{ "vendor/sqlite/sqlite3.c", "src/sandbox.c", "src/live.c", "src/diagnostics.c" },
         .flags = &.{
             "-DSQLITE_TEMP_STORE=3",
             "-DSQLITE_OMIT_RANDOMNESS=1",
@@ -30,6 +25,9 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{ .name = "zsqt", .root_module = module });
     exe.pie = true;
     b.installArtifact(exe);
+    b.installFile("completions/zsqt.bash", "share/bash-completion/completions/zsqt");
+    b.installFile("completions/_zsqt", "share/zsh/site-functions/_zsqt");
+    b.installFile("completions/zsqt.fish", "share/fish/vendor_completions.d/zsqt.fish");
 
     const run = b.addRunArtifact(exe);
     run.addPassthruArgs();
@@ -76,6 +74,15 @@ pub fn build(b: *std.Build) void {
     const release_policy_tests = b.addTest(.{ .root_module = release_policy_module });
     test_step.dependOn(&b.addRunArtifact(release_policy_tests).step);
 
+    const completion_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_completion.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const completion_tests = b.addTest(.{ .root_module = completion_module });
+    test_step.dependOn(&b.addRunArtifact(completion_tests).step);
+
     const diagnostics_module = b.createModule(.{
         .root_source_file = b.path("tests/test_diagnostics.zig"),
         .target = b.graph.host,
@@ -84,6 +91,30 @@ pub fn build(b: *std.Build) void {
     });
     const diagnostics_tests = b.addTest(.{ .root_module = diagnostics_module });
     const run_diagnostics = b.addRunArtifact(diagnostics_tests);
+    const termux_tool_module = b.createModule(.{
+        .root_source_file = b.path("tools/check_termux_candidate.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    termux_tool_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+    const termux_tool = b.addExecutable(.{ .name = "check-termux-candidate", .root_module = termux_tool_module });
+    const install_termux_tool = b.addInstallArtifact(termux_tool, .{ .dest_dir = .{ .override = .{ .custom = "tools" } } });
+    const tools_step = b.step("tools", "Build project tools");
+    tools_step.dependOn(&install_termux_tool.step);
+    const test_termux_tool = b.addInstallArtifact(termux_tool, .{ .dest_dir = .{ .override = .{ .custom = "test-bin" } } });
+
+    const termux_tool_test_module = b.createModule(.{
+        .root_source_file = b.path("tests/test_termux_tool.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const termux_tool_tests = b.addTest(.{ .root_module = termux_tool_test_module });
+    const run_termux_tool_tests = b.addRunArtifact(termux_tool_tests);
+    run_termux_tool_tests.step.dependOn(&test_termux_tool.step);
+    test_step.dependOn(&run_termux_tool_tests.step);
+
     const probe_module = b.createModule(.{
         .root_source_file = b.path("tests/test_termux_probe.zig"),
         .target = b.graph.host,
@@ -91,9 +122,12 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     const probe_tests = b.addTest(.{ .root_module = probe_module });
-    test_step.dependOn(&b.addRunArtifact(probe_tests).step);
+    const run_probe = b.addRunArtifact(probe_tests);
+    run_probe.step.dependOn(&test_termux_tool.step);
+    test_step.dependOn(&run_probe.step);
 
     const test_exe = b.addInstallArtifact(exe, .{ .dest_dir = .{ .override = .{ .custom = "test-bin" } } });
+    run_termux_tool_tests.step.dependOn(&test_exe.step);
     run_diagnostics.step.dependOn(&test_exe.step);
     test_step.dependOn(&run_diagnostics.step);
     const pointer_module = b.createModule(.{
@@ -206,18 +240,15 @@ pub fn build(b: *std.Build) void {
     // The syscall audit traces a static executable to avoid loader accesses.
     if (b.graph.host.result.os.tag == .linux and b.graph.host.result.cpu.arch == .x86_64) {
         const audit_target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl });
-        const audit_options = b.addOptions();
-        audit_options.addOption(bool, "diagnostics", false);
         const audit_app = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = audit_target,
             .optimize = optimize,
             .link_libc = true,
         });
-        audit_app.addOptions("build_options", audit_options);
         audit_app.addIncludePath(b.path("vendor/sqlite"));
         audit_app.addCSourceFiles(.{
-            .files = &.{ "vendor/sqlite/sqlite3.c", "src/sandbox.c", "src/live.c" },
+            .files = &.{ "vendor/sqlite/sqlite3.c", "src/sandbox.c", "src/live.c", "src/diagnostics.c" },
             .flags = &.{
                 "-DSQLITE_TEMP_STORE=3",
                 "-DSQLITE_OMIT_RANDOMNESS=1",

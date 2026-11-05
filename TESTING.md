@@ -4,6 +4,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 ## Findings
 
+- [x] Reject symbolic links and group-writable or world-writable cache directories during Termux probe setup. The check assumes the workspace is not modified concurrently by the same user.
+- [x] Reject workspace paths that can be split or expanded by the upstream Termux PIE script. The Zig probe fails before running the script when its temporary path contains whitespace or glob characters.
 - [x] Escape SQLite error text before terminal output. A malformed schema could inject terminal controls through startup errors. `tests/test_live_audit.zig` covers the reported path.
 - [x] Synchronize the database directory when SQLite requests it after journal deletion. `tests/security.c` verifies the call and an injected synchronization failure.
 - [x] Block confirmation while the terminal is below the minimum size. Terminal tests cover pending writes and recovery.
@@ -19,8 +21,10 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Exercise an x86_64 Linux binary in terminal sessions with rollback and WAL databases.
 - [x] Cover navigation, search, help, resizing, queries, access changes, edits, paging, and recovery.
 - [x] Check SQL authorization, symlinks and hardlinks, terminal controls, query limits, and SQLite lock handling.
-- [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check confirmation, cleanup, symlink rejection, and restricted syscalls.
+- [x] Run diagnostic fixtures for read-only enforcement, rollback writes, WAL writes, and hot-journal recovery on Linux. Check explicit debug authorization, cleanup, symlink rejection, and restricted syscalls.
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
+- [x] Verify transferred executable checksums and reject a modified test helper in a local manifest check. These checksums detect mismatches but do not authenticate an artifact and manifest obtained together.
+- [x] Run the integration, diagnostic, restricted-syscall, release-policy, completion, and prose suites against the current x86_64 build. The checks cover their tested inputs and paths, not all possible behavior.
 - [x] Probe 48 deterministic byte mutations and 16 invalid SQLite headers with the x86_64 `--check` binary. Invalid headers were rejected, and no tested file changed or produced a sidecar. The 48 byte mutations remained readable and do not establish database integrity.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
 - [x] Test SemVer parsing, precedence, release history, and changed-content checks against isolated Git repositories.
@@ -47,20 +51,9 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 ./tools/zig/zig build test -Doptimize=ReleaseSmall
 ```
 
-Fixtures use `.zig-cache/tmp`. The diagnostics suite skips the debug-build cases unless `ZSQT_DEBUG_EXE` names a diagnostics executable. CI builds that executable separately and runs the complete diagnostics suite. To repeat it locally, build both the production and diagnostics executables:
+Fixtures use `.zig-cache/tmp`. The diagnostics suite runs against the regular test executable. Current CI configuration also tests the static production executable and its aarch64 counterpart.
 
-```sh
-export ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global"
-export ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local"
-export TMPDIR="$PWD/.zig-cache/tmp"
-./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
-./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true -Ddiagnostics=true --prefix .zig-cache/debug-x86
-ZSQT_TEST_EXE="$PWD/zig-out/bin/zsqt" \
-ZSQT_DEBUG_EXE="$PWD/.zig-cache/debug-x86/bin/zsqt" \
-./tools/zig/zig test tests/test_diagnostics.zig -O ReleaseSmall -lc
-```
-
-CI also traces the production x86_64 executable with `ZSQT_AUDIT_EXE=zig-out/bin/zsqt`. The aarch64 jobs run the cross-compiled integration suites on native ARM. Compiler setup and build commands are in [building](docs/building.md).
+CI also traces the production x86_64 executable with `ZSQT_AUDIT_EXE=zig-out/bin/zsqt`. The aarch64 jobs run the cross-compiled integration suites on native ARM. Current uncommitted changes require a new CI run before those results can be attributed to them. Compiler setup and build commands are in [building](docs/building.md).
 
 A sample database can be created with Python:
 
@@ -78,17 +71,17 @@ PY
 
 ## Android debug self-test
 
-The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 Termux. Artifacts expire after one day. Download the artifact from the workflow run, extract the ZIP file, and verify the included checksum. Extract the resulting archive and run the diagnostics build:
+The CI workflow provides a `termux-debug-aarch64` artifact for testing on ARM64 Termux. Artifacts expire after one day. Download the artifact from the workflow run, extract the ZIP file, and verify the included checksum. Extract the resulting archive and run the self-test:
 
 ```sh
 sha256sum -c SHA256SUMS
 tar -xzf zsqt-android-arm64-debug.tar.gz
-./zsqt-debug --debug-test --confirm
+./zsqt-debug --debug
 ```
 
-The flag and confirmation authorize writes only to disposable fixtures under `$HOME/.zsqt`. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts. Copy the complete output for diagnosis.
+The `--debug` flag authorizes writes only to disposable fixtures under `$HOME/.zsqt`. Results cover read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup. The self-test does not open an existing user database or test the TUI confirmation prompts. Copy the complete output for diagnosis.
 
-The regular release build does not include this self-test.
+The regular release build also includes this self-test.
 
 ## Termux diagnostic
 
@@ -98,7 +91,11 @@ Run the diagnostic locally with an executable matching the Linux host architectu
 
 ```sh
 bash tools/fetch_termux_packages.sh
-python3 tools/check_termux_candidate.py .zig-cache/termux-packages zig-out/bin/zsqt
+ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" \
+ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" \
+TMPDIR="$PWD/.zig-cache/tmp" \
+./tools/zig/zig build tools -Doptimize=ReleaseSmall
+zig-out/tools/check-termux-candidate .zig-cache/termux-packages zig-out/bin/zsqt
 ```
 
-The diagnostic traps `openat2`, `faccessat2`, and `fchmodat2` with a Linux seccomp filter. Android policies and Termux app execution are not reproduced.
+The diagnostic requires `statx` and rejects symlinked or group-writable cache directories during setup. It traps `openat2`, `faccessat2`, and `fchmodat2` with a Linux seccomp filter. Because the upstream PIE script uses unquoted paths, the diagnostic rejects workspace paths containing whitespace or shell glob characters. Android policies and Termux app execution are not reproduced.

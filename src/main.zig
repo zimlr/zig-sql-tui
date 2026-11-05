@@ -1,5 +1,4 @@
 const std = @import("std");
-const build_options = @import("build_options");
 extern fn app_diagnostics() c_int;
 
 const Db = opaque {};
@@ -1396,30 +1395,36 @@ fn confirmRecovery() bool {
 pub fn main(init: std.process.Init.Minimal) u8 {
     var it = init.args.iterate();
     _ = it.next();
+    const usage = "Usage: zsqt [--check | --recover] DATABASE\n       zsqt --debug\n       zsqt --help\n";
     const first = it.next() orelse {
-        output(2, "Usage: zsqt [--check | --recover] DATABASE\n");
+        output(2, usage);
         return 2;
     };
-    if (std.mem.eql(u8, first, "--debug-test")) {
-        const confirmation = it.next() orelse {
-            output(2, "Usage: zsqt --debug-test --confirm\n");
-            return 2;
-        };
-        if (!std.mem.eql(u8, confirmation, "--confirm") or it.next() != null) {
-            output(2, "Usage: zsqt --debug-test --confirm\n");
+    if (std.mem.eql(u8, first, "--help")) {
+        if (it.next() != null) {
+            output(2, usage);
             return 2;
         }
-        if (comptime build_options.diagnostics) {
-            return if (app_diagnostics() == 0) 0 else 1;
-        } else {
-            output(2, "Self-test is available only in a diagnostics build\n");
+        output(1, usage);
+        output(1, "--debug runs a write and recovery self-test on disposable files under $HOME/.zsqt.\n");
+        return 0;
+    }
+    if (std.mem.eql(u8, first, "--debug")) {
+        if (it.next() != null) {
+            output(2, usage);
             return 2;
         }
+        return if (app_diagnostics() == 0) 0 else 1;
     }
     const check = std.mem.eql(u8, first, "--check");
     const recover = std.mem.eql(u8, first, "--recover");
-    const path = if (check or recover) it.next() orelse {
-        output(2, "Usage: zsqt [--check | --recover] DATABASE\n");
+    const end_options = std.mem.eql(u8, first, "--");
+    if (!check and !recover and !end_options and std.mem.startsWith(u8, first, "--")) {
+        output(2, usage);
+        return 2;
+    }
+    const path = if (check or recover or end_options) it.next() orelse {
+        output(2, usage);
         return 2;
     } else first;
     if (it.next() != null) {

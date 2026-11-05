@@ -49,7 +49,7 @@ jobs:
       - name: Check project prose
         run: python3 tools/check_prose.py
       - name: Check formatting
-        run: ./tools/zig/zig fmt --check build.zig src/main.zig tests/*.zig
+        run: ./tools/zig/zig fmt --check build.zig src/main.zig tests/*.zig tools/*.zig
       - name: Build x86_64
         run: ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true
       - name: Run tests
@@ -60,9 +60,9 @@ jobs:
         run: ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/arm-output
       - name: Build and test diagnostics
         run: |
-          ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true -Ddiagnostics=true --prefix .zig-cache/debug-x86
+          ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/debug-x86
           ZSQT_TEST_EXE="$PWD/zig-out/bin/zsqt" ZSQT_DEBUG_EXE="$PWD/.zig-cache/debug-x86/bin/zsqt" ./tools/zig/zig test tests/test_diagnostics.zig -O ReleaseSmall -lc
-          ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true -Ddiagnostics=true --prefix .zig-cache/debug-arm
+          ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/debug-arm
           mkdir -p .zig-cache/debug-package .zig-cache/debug-transfer
           cp .zig-cache/debug-arm/bin/zsqt .zig-cache/debug-package/zsqt-debug
           chmod +x .zig-cache/debug-package/zsqt-debug
@@ -90,6 +90,8 @@ jobs:
           mkdir -p .zig-cache/arm-transfer
           cp .zig-cache/arm-output/bin/zsqt .zig-cache/arm-transfer/
           ./tools/zig/zig test tests/test_termux_probe.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/arm-transfer/termux-probe-test
+          ./tools/zig/zig build-exe tools/check_termux_candidate.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc -femit-bin=.zig-cache/arm-transfer/check-termux-candidate
+          ./tools/zig/zig test tests/test_termux_tool.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/arm-transfer/termux-tool-test
           ./tools/zig/zig test tests/test_release_policy.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/arm-transfer/release-policy-test
           ./tools/zig/zig test tests/test_diagnostics.zig -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/arm-transfer/diagnostics-test
           ./tools/zig/zig test tests/test_pointer_navigation.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/arm-transfer/pointer-navigation-test
@@ -102,7 +104,7 @@ jobs:
           ./tools/zig/zig test tests/test_wal_write.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/arm-transfer/wal-write-test
           ./tools/zig/zig test tests/test_termux_restrictions.zig vendor/sqlite/sqlite3.c -target aarch64-linux-musl -O ReleaseSmall -lc --test-no-exec -femit-bin=.zig-cache/arm-transfer/termux-restrictions-test
           cd .zig-cache/arm-transfer
-          sha256sum zsqt termux-probe-test release-policy-test diagnostics-test pointer-navigation-test global-search-test without-rowid-test paging-test live-audit-test app-test recovery-test wal-write-test termux-restrictions-test > SHA256SUMS
+          sha256sum zsqt termux-probe-test check-termux-candidate termux-tool-test release-policy-test diagnostics-test pointer-navigation-test global-search-test without-rowid-test paging-test live-audit-test app-test recovery-test wal-write-test termux-restrictions-test > SHA256SUMS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: aarch64-linux-musl-test
@@ -126,9 +128,10 @@ jobs:
         run: |
           test "$(uname -m)" = aarch64
           (cd zig-out/bin && sha256sum -c SHA256SUMS)
-          chmod +x zig-out/bin/zsqt zig-out/bin/termux-probe-test zig-out/bin/pointer-navigation-test zig-out/bin/global-search-test zig-out/bin/without-rowid-test zig-out/bin/paging-test zig-out/bin/live-audit-test zig-out/bin/app-test zig-out/bin/recovery-test zig-out/bin/wal-write-test zig-out/bin/release-policy-test zig-out/bin/diagnostics-test zig-out/bin/termux-restrictions-test
+          chmod +x zig-out/bin/zsqt zig-out/bin/termux-probe-test zig-out/bin/pointer-navigation-test zig-out/bin/global-search-test zig-out/bin/without-rowid-test zig-out/bin/paging-test zig-out/bin/live-audit-test zig-out/bin/app-test zig-out/bin/recovery-test zig-out/bin/wal-write-test zig-out/bin/release-policy-test zig-out/bin/diagnostics-test zig-out/bin/termux-restrictions-test zig-out/bin/check-termux-candidate zig-out/bin/termux-tool-test
           mkdir -p .zig-cache/tmp
-          ./zig-out/bin/termux-probe-test
+          ZSQT_TERMUX_PROBE=zig-out/bin/check-termux-candidate ./zig-out/bin/termux-probe-test
+          ZSQT_TEST_EXE=zig-out/bin/zsqt ZSQT_TERMUX_PROBE=zig-out/bin/check-termux-candidate ./zig-out/bin/termux-tool-test
           ./zig-out/bin/release-policy-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/diagnostics-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt ./zig-out/bin/pointer-navigation-test

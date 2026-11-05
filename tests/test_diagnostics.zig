@@ -9,7 +9,7 @@ fn productionExe() [*:0]const u8 {
 }
 
 fn debugExe() ![*:0]const u8 {
-    return c.getenv("ZSQT_DEBUG_EXE") orelse error.SkipZigTest;
+    return c.getenv("ZSQT_DEBUG_EXE") orelse productionExe();
 }
 
 fn run(args: []const [*:0]const u8, home: ?[*:0]const u8, restricted: bool) !process.Result {
@@ -99,20 +99,17 @@ const Fixture = struct {
     }
 };
 
-test "production build cannot run diagnostics" {
-    const result = try run(&.{ productionExe(), "--debug-test", "--confirm" }, null, false);
-    try std.testing.expect(result.status != 0);
-    try contains(result.err(), "only in a diagnostics build");
-}
-
-test "diagnostics requires confirmation without creating files" {
-    _ = try debugExe();
+test "debug appears in usage and rejects extra arguments" {
+    const help = try run(&.{ productionExe(), "--help" }, null, false);
+    try std.testing.expectEqual(@as(c_int, 0), help.status);
+    try contains(help.out(), "--debug");
+    try contains(help.out(), "disposable files");
     var fixture = try Fixture.init();
     defer fixture.deinit();
-    for ([_][]const [*:0]const u8{ &.{"--debug-test"}, &.{ "--debug-test", "--confirm", "extra" } }) |args| {
+    for ([_][]const [*:0]const u8{ &.{ "--debug", "extra" }, &.{ "--debug-test", "--confirm" } }) |args| {
         const result = try fixture.debug(args, false);
         try std.testing.expectEqual(@as(c_int, 2 << 8), result.status);
-        try contains(result.err(), "--debug-test --confirm");
+        try contains(result.err(), "Usage: zsqt");
         try fixture.noConfig();
     }
     try fixture.unchanged();
@@ -123,7 +120,7 @@ test "diagnostics self test and cleanup are repeatable" {
     var fixture = try Fixture.init();
     defer fixture.deinit();
     for (0..2) |_| {
-        const result = try fixture.debug(&.{ "--debug-test", "--confirm" }, false);
+        const result = try fixture.debug(&.{"--debug"}, false);
         try fixture.passed(&result);
     }
 }
@@ -136,7 +133,7 @@ test "diagnostics works under restricted syscalls" {
     try std.testing.expectEqual(@as(c_int, 0), probe.status);
     var fixture = try Fixture.init();
     defer fixture.deinit();
-    const result = try fixture.debug(&.{ "--debug-test", "--confirm" }, true);
+    const result = try fixture.debug(&.{"--debug"}, true);
     try fixture.passed(&result);
 }
 
@@ -148,7 +145,7 @@ test "diagnostics rejects symlinked home and config" {
     const other = try std.fmt.bufPrintSentinel(&other_buf, "{s}/other", .{std.mem.sliceTo(&fixture.home, 0)}, 0);
     if (c.mkdir(other.ptr, 0o700) != 0) return error.MkdirFailed;
     if (c.symlink("other", @ptrCast(&fixture.config)) != 0) return error.SymlinkFailed;
-    const config_result = try fixture.debug(&.{ "--debug-test", "--confirm" }, false);
+    const config_result = try fixture.debug(&.{"--debug"}, false);
     try std.testing.expect(config_result.status != 0);
     try contains(config_result.out(), "SETUP: FAIL");
     try Fixture.emptyDir(other.ptr);
@@ -157,7 +154,7 @@ test "diagnostics rejects symlinked home and config" {
     var alias_buf: [4300]u8 = undefined;
     const alias = try std.fmt.bufPrintSentinel(&alias_buf, "{s}/home-alias", .{std.mem.sliceTo(&fixture.base, 0)}, 0);
     if (c.symlink("home", alias.ptr) != 0) return error.SymlinkFailed;
-    const result = try run(&.{ try debugExe(), "--debug-test", "--confirm" }, alias.ptr, false);
+    const result = try run(&.{ try debugExe(), "--debug" }, alias.ptr, false);
     try std.testing.expect(result.status != 0);
     try contains(result.out(), "SETUP: FAIL");
     try fixture.noConfig();
@@ -168,7 +165,7 @@ test "diagnostics rejects writable home" {
     var fixture = try Fixture.init();
     defer fixture.deinit();
     if (c.chmod(@ptrCast(&fixture.home), 0o777) != 0) return error.ChmodFailed;
-    const result = try fixture.debug(&.{ "--debug-test", "--confirm" }, false);
+    const result = try fixture.debug(&.{"--debug"}, false);
     try std.testing.expect(result.status != 0);
     try contains(result.out(), "SETUP: FAIL");
     try fixture.noConfig();
@@ -180,7 +177,7 @@ test "diagnostics rejects writable config" {
     var fixture = try Fixture.init();
     defer fixture.deinit();
     if (c.mkdir(@ptrCast(&fixture.config), 0o700) != 0 or c.chmod(@ptrCast(&fixture.config), 0o777) != 0) return error.MkdirFailed;
-    const result = try fixture.debug(&.{ "--debug-test", "--confirm" }, false);
+    const result = try fixture.debug(&.{"--debug"}, false);
     try std.testing.expect(result.status != 0);
     try contains(result.out(), "SETUP: FAIL");
     try Fixture.emptyDir(@ptrCast(&fixture.config));

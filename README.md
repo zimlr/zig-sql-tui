@@ -66,6 +66,10 @@ Select a table, then press Tab to browse its rows. Mouse users can select tabs a
 
 Write SQL entered with `i` also requires confirmation. Use `:null` to set a selected cell to NULL. Cell editing is available for eligible table rows, not query results. Use `:reload` to return to the table view.
 
+### Shell completion
+
+Completion files for Bash, Zsh, and Fish are installed under `zig-out/share` by the build. Archives produced by the current release workflow include the files in `completions`. The published `v1.0.0` archive does not include them. Source the Bash file, place `_zsqt` in a Zsh `fpath` directory before `compinit`, or copy the Fish file to `~/.config/fish/completions/zsqt.fish`.
+
 ### Check or recover a database
 
 ```sh
@@ -73,7 +77,9 @@ Write SQL entered with `i` also requires confirmation. Use `:null` to set a sele
 ./zsqt --recover path/to/database.sqlite
 ```
 
-The check verifies that the reader can open the database, not its integrity. Recovery requires a terminal and explicit confirmation before it modifies the database or journal. Entering write mode may also allow SQLite to perform recovery.
+For interactive use, place `--` before a database path beginning with `--`. The check verifies that the reader can open the database, not its integrity. Recovery requires a terminal and explicit confirmation before it modifies the database or journal. Entering write mode may also allow SQLite to perform recovery.
+
+Run `zsqt --debug` to exercise rollback writes, WAL, and recovery using disposable fixtures under `$HOME/.zsqt`. This option authorizes fixture writes and does not open an existing user database. See [testing](TESTING.md) for setup and cleanup details.
 
 ## Safety and limitations
 
