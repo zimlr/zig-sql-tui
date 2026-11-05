@@ -20,7 +20,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Clear stale error state before a new operation. Retain errors from failed table page loads and searches. A terminal test covers paging after a query error.
 - [x] Build position-independent executables without an ELF interpreter or shared-library dependencies. The upstream Termux PIE check accepts the aarch64 candidate in the compatibility workflow, and `readelf` checks cover both release binaries.
 - [x] Replace `openat2` with an fd-anchored, no-symlink directory walk and single-component sidecar opens. Linux tests exercise the allowlist with restricted syscalls trapped. The native ARM probe passed in [CI run 41926400320](https://github.com/zimlr/zsqt/actions/runs/41926400320).
-- [x] Verify basic startup in the Termux app on Android 13. A user reported that `v1.0.0` terminates with `Bad system call`, while the later ARM64 test build opens a database and displays the TUI. The earlier ARM probe failed in [CI run 41917316005](https://github.com/zimlr/zsqt/actions/runs/41917316005).
+- [x] Verify basic startup in the Termux app on Android 13. A user reported that `v1.0.0` terminates with `Bad system call`, while the later ARM64 test build opens a database and displays the TUI.
 
 ## Coverage
 
@@ -37,7 +37,7 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Probe 16 header mutations and 48 scattered byte mutations with the x86_64 `--check` binary. Header mutations were rejected, and the 48 mutations remained readable, which does not establish database integrity. No tested file changed or produced a sidecar. `tests/test_app.zig` repeats these checks with a separate fixture.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
 - [x] Test SemVer parsing, precedence, release history, and changed-content checks against isolated Git repositories.
-- [x] Run the release workflow on GitHub after an explicit user request. The initial release completed in [CI run 41923948348](https://github.com/zimlr/zsqt/actions/runs/41923948348) and `v2.0.0` in [CI run 42023815702](https://github.com/zimlr/zsqt/actions/runs/42023815702). Draft-first publication has not yet run for a published release.
+- [x] Run the release workflow on GitHub after an explicit user request. Releases `v1.0.0` and `v2.0.0` are published, and [CI run 42023815702](https://github.com/zimlr/zsqt/actions/runs/42023815702) published `v2.0.0`. Draft-first publication has not yet run for a published release.
 - [x] Run the aarch64 binary and the Zig integration suites on native aarch64 Linux. [CI run 42068224415](https://github.com/zimlr/zsqt/actions/runs/42068224415) passed for commit `beccf78`. Syscall tracing remains limited to x86_64.
 - [x] Package the aarch64 Linux executable with the pinned Termux build system and run restricted-syscall tests on native ARM. [Termux compatibility run 42068224377](https://github.com/zimlr/zsqt/actions/runs/42068224377) passed for commit `beccf78`.
 - [x] Open a database and use touch, scrolling, Home, End, Page Up, and Page Down in Termux on Android 13. The result is a user report for a later ARM64 test build.
