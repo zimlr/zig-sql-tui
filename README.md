@@ -25,6 +25,8 @@ tar -xzf zsqt-v2.0.0-x86_64-linux-musl.tar.gz
 ./zsqt path/to/database.sqlite
 ```
 
+The release workflow also produces Debian packages for `amd64` and `arm64`. Published release `v2.0.0` contains archives only. Install a matching package on Debian-based Linux with `sudo dpkg -i ./zsqt-vX.Y.Z-amd64.deb`, replacing `vX.Y.Z` with the release tag. Debian packages use `/usr` paths and do not target Termux.
+
 The `v1.0.0` release uses the former `zig-sql-tui` project and executable names. That release fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for Termux validation status.
 
 The features and controls below describe current source and may differ from `v1.0.0`. A Windows port is not planned.
@@ -77,7 +79,7 @@ Write SQL entered with `i` also requires confirmation. Use `:null` to set a sele
 
 ### Shell completion
 
-The build installs Bash, Zsh, and Fish completion files under `zig-out/share`. Release archives include the files in `completions`, except for `v1.0.0`.
+The build installs Bash, Zsh, and Fish completion files under `zig-out/share`. Release archives include the files in `completions`, except for `v1.0.0`. Debian packages install them under `/usr/share`.
 
 Source the Bash file, place `_zsqt` in a Zsh `fpath` directory before `compinit`, or copy the Fish file to `~/.config/fish/completions/zsqt.fish`.
 

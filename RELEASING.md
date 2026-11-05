@@ -38,6 +38,12 @@ The workflow rechecks release history and the default branch immediately before 
 
 The workflow verifies the pinned compiler and SQLite sources, runs the security and integration tests, and builds static PIE binaries for x86_64 and aarch64 Linux. A native Linux ARM runner also tests the aarch64 binary.
 
-The current workflow packages the binary, shell completions, security policy, project documentation, logo, and SQLite license for each architecture. Published `v1.0.0` assets use the former packaging. `SHA256SUMS` contains checksums for both archives. Broader Termux compatibility remains unverified and the release notes state that limitation.
+The workflow creates archives and Debian packages for x86_64 and aarch64 Linux. Each package includes the executable, shell completions, security policy, documentation, logo, and SQLite license. Published `v1.0.0` and `v2.0.0` releases do not contain Debian packages. `SHA256SUMS` covers both archives and both Debian packages.
+
+The Debian version preserves SemVer precedence. Prerelease identifiers use an encoded Debian representation, and build metadata is omitted from the package version. Control field `X-Zsqt-Release` retains the complete release tag. Debian packages install under `/usr` and are not Termux packages.
+
+No project license or maintainer email address is declared in the repository. The Debian package records the maintainer name without an email address and includes the SQLite license separately. It is not represented as an official Debian archive package.
+
+The workflow creates a draft release and uploads all assets before publication. It checks the uploaded asset names and SHA-256 digests, the default branch, and published release history before publishing the draft. This sequence supports immutable published releases. Broader Termux compatibility remains unverified and the release notes state that limitation.
 
 A failure during publication can leave a tag or draft release. Inspect the repository state before retrying. Do not replace or delete an existing release or tag without explicit user authorization.

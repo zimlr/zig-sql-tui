@@ -4,7 +4,7 @@ const io = @import("tool_io.zig");
 const process = @import("process_support.zig");
 const Allocator = std.mem.Allocator;
 
-const Version = struct { core: [3][]const u8, pre: ?[]const u8 };
+pub const Version = struct { core: [3][]const u8, pre: ?[]const u8 };
 
 fn numeric(s: []const u8) bool {
     if (s.len == 0) return false;
@@ -20,7 +20,7 @@ fn identifiers(s: []const u8, prerelease: bool) bool {
     }
     return true;
 }
-fn parseVersion(tag: []const u8) !Version {
+pub fn parseVersion(tag: []const u8) !Version {
     if (tag.len < 2 or tag[0] != 'v') return error.InvalidSemVer;
     const value = tag[1..];
     const plus = std.mem.indexOfScalar(u8, value, '+') orelse value.len;

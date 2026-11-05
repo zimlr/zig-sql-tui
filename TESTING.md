@@ -4,6 +4,9 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 ## Findings
 
+- [x] Build and install an amd64 Debian package into an isolated dpkg root. The installed executable runs terminal and read-only tests without accessing the host package database.
+- [x] Reject package architecture mismatches, invalid tags, symbolic links, existing output files, and altered release draft assets. The test uses disposable files and no published release.
+- [x] Check Debian version ordering against SemVer prereleases, including alphanumeric identifiers and build metadata.
 - [x] Replace repeated page scans during search with a single bounded scan. Terminal fixtures cover distant matches in a 40,000-row, 40-column table and a 373,781-row, 12-column table. The navigation budget remains finite.
 - [x] Release-history validation rejects nonregular input without blocking. `tests/test_release_policy.zig` covers a named pipe.
 - [x] Markdown scanning rejects symbolic links and nonregular files. `tests/test_prose.zig` covers symlinks and named pipes without following or blocking on them.
@@ -43,7 +46,7 @@ The prose checker covers selected mechanical rules in project-owned Markdown and
 
 ## Running tests
 
-The Zig test step runs the Zig suites and the existing C security harness. It builds a separate test executable without replacing `zig-out/bin/zsqt`. On Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Zig tools. Git is required for release-policy tests.
+The Zig test step runs the Zig suites and the existing C security harness. Linux x86_64 tests also require `dpkg`, `dpkg-deb`, `readelf`, `xz`, and `jq` for Debian package validation. It builds a separate test executable without replacing `zig-out/bin/zsqt`. On Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Zig tools. Git is required for release-policy tests.
 
 ```sh
 mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp
@@ -71,6 +74,8 @@ TMPDIR="$PWD/.zig-cache/tmp" \
 The benchmark reports initial search and repeated next and previous search times. Results depend on the host, terminal, and storage.
 
 Fixtures use `.zig-cache/tmp`. The diagnostics suite runs against the regular test executable. Current CI configuration also tests the static production executable and its aarch64 counterpart.
+
+CI builds Debian test packages for both architectures. The native ARM job installs the `arm64` package into an isolated root and tests its executable. These checks do not install packages into the runner system or validate Android Termux.
 
 CI also traces the production x86_64 executable with `ZSQT_AUDIT_EXE=zig-out/bin/zsqt`. The aarch64 jobs run the cross-compiled integration suites on native ARM. Compiler setup and build commands are in [building](docs/building.md).
 

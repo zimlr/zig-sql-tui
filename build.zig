@@ -114,8 +114,14 @@ pub fn build(b: *std.Build) void {
     tools_step.dependOn(&install_termux_tool.step);
     const install_prose_tool = b.addInstallArtifact(prose_tool, .{ .dest_dir = .{ .override = .{ .custom = "tools" } } });
     const install_policy_tool = b.addInstallArtifact(policy_tool, .{ .dest_dir = .{ .override = .{ .custom = "tools" } } });
+    const deb_version_module = b.createModule(.{ .root_source_file = b.path("tools/deb_version.zig"), .target = b.graph.host, .optimize = optimize, .link_libc = true });
+    const deb_version_tool = b.addExecutable(.{ .name = "deb-version", .root_module = deb_version_module });
+    const install_deb_version = b.addInstallArtifact(deb_version_tool, .{ .dest_dir = .{ .override = .{ .custom = "tools" } } });
     tools_step.dependOn(&install_prose_tool.step);
     tools_step.dependOn(&install_policy_tool.step);
+    tools_step.dependOn(&install_deb_version.step);
+    const deb_version_tests = b.addTest(.{ .root_module = deb_version_module });
+    test_step.dependOn(&b.addRunArtifact(deb_version_tests).step);
     const test_termux_tool = b.addInstallArtifact(termux_tool, .{ .dest_dir = .{ .override = .{ .custom = "test-bin" } } });
 
     const termux_tool_test_module = b.createModule(.{
@@ -285,5 +291,18 @@ pub fn build(b: *std.Build) void {
         run_syscalls.addPrefixedFileArg("ZSQT_AUDIT_EXE=", audit_exe.getEmittedBin());
         run_syscalls.addFileArg(syscall_tests.getEmittedBin());
         test_step.dependOn(&run_syscalls.step);
+        const deb_test_module = b.createModule(.{
+            .root_source_file = b.path("tests/test_deb_package.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        deb_test_module.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c"), .flags = &.{} });
+        const deb_tests = b.addTest(.{ .root_module = deb_test_module });
+        const run_deb = b.addSystemCommand(&.{"env"});
+        run_deb.addPrefixedFileArg("ZSQT_DEB_BINARY=", audit_exe.getEmittedBin());
+        run_deb.addFileArg(deb_tests.getEmittedBin());
+        run_deb.step.dependOn(&install_deb_version.step);
+        test_step.dependOn(&run_deb.step);
     }
 }
