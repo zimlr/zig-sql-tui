@@ -69,7 +69,7 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 - Use explicit ownership, allocator lifetimes, error propagation, and bounds checks. Release resources on every exit path.
 - Validate untrusted database content, SQL results, terminal input, and dimensions. Handle malformed data and allocation failures without undefined behavior.
 - Keep changes focused and test behavior at its boundaries. Document non-obvious invariants and security decisions.
-- Write new tests in Zig. Existing C security tests and subprocess checks of production Python tools remain supported.
+- Write new tests in Zig. The existing C security harness remains supported.
 - Read and follow [WRITING_STYLE.md](WRITING_STYLE.md) for prose style and enforcement.
 
 # Definition of done

@@ -63,7 +63,12 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     const prose_tests = b.addTest(.{ .root_module = prose_module });
-    test_step.dependOn(&b.addRunArtifact(prose_tests).step);
+    const prose_tool_module = b.createModule(.{ .root_source_file = b.path("tools/check_prose.zig"), .target = b.graph.host, .optimize = optimize, .link_libc = true });
+    const prose_tool = b.addExecutable(.{ .name = "check-prose", .root_module = prose_tool_module });
+    const test_prose_tool = b.addInstallArtifact(prose_tool, .{ .dest_dir = .{ .override = .{ .custom = "test-bin" } } });
+    const run_prose_tests = b.addRunArtifact(prose_tests);
+    run_prose_tests.step.dependOn(&test_prose_tool.step);
+    test_step.dependOn(&run_prose_tests.step);
 
     const release_policy_module = b.createModule(.{
         .root_source_file = b.path("tests/test_release_policy.zig"),
@@ -72,7 +77,12 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     const release_policy_tests = b.addTest(.{ .root_module = release_policy_module });
-    test_step.dependOn(&b.addRunArtifact(release_policy_tests).step);
+    const policy_tool_module = b.createModule(.{ .root_source_file = b.path("tools/release_policy.zig"), .target = b.graph.host, .optimize = optimize, .link_libc = true });
+    const policy_tool = b.addExecutable(.{ .name = "release-policy", .root_module = policy_tool_module });
+    const test_policy_tool = b.addInstallArtifact(policy_tool, .{ .dest_dir = .{ .override = .{ .custom = "test-bin" } } });
+    const run_policy_tests = b.addRunArtifact(release_policy_tests);
+    run_policy_tests.step.dependOn(&test_policy_tool.step);
+    test_step.dependOn(&run_policy_tests.step);
 
     const completion_module = b.createModule(.{
         .root_source_file = b.path("tests/test_completion.zig"),
@@ -102,6 +112,10 @@ pub fn build(b: *std.Build) void {
     const install_termux_tool = b.addInstallArtifact(termux_tool, .{ .dest_dir = .{ .override = .{ .custom = "tools" } } });
     const tools_step = b.step("tools", "Build project tools");
     tools_step.dependOn(&install_termux_tool.step);
+    const install_prose_tool = b.addInstallArtifact(prose_tool, .{ .dest_dir = .{ .override = .{ .custom = "tools" } } });
+    const install_policy_tool = b.addInstallArtifact(policy_tool, .{ .dest_dir = .{ .override = .{ .custom = "tools" } } });
+    tools_step.dependOn(&install_prose_tool.step);
+    tools_step.dependOn(&install_policy_tool.step);
     const test_termux_tool = b.addInstallArtifact(termux_tool, .{ .dest_dir = .{ .override = .{ .custom = "test-bin" } } });
 
     const termux_tool_test_module = b.createModule(.{

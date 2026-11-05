@@ -16,7 +16,7 @@ After the initial release, select the version from the compatibility impact of a
 
 A prerelease identifier marks a prerelease, and build metadata does not affect precedence. Published versions are immutable. A candidate must have greater precedence than every published release, including prereleases. Numeric core and prerelease identifiers cannot contain leading zeroes.
 
-The workflow validates version syntax and precedence, but it cannot determine the compatibility impact of changes. Inspect the changes before selecting the version. Request clarification when the impact or requested version is uncertain.
+The workflow validates version syntax and precedence, but it cannot determine the compatibility impact of changes. Release API input exceeding 64 MiB is rejected. Inspect the changes before selecting the version. Request clarification when the impact or requested version is uncertain.
 
 ## Dispatch
 

@@ -22,8 +22,9 @@ fn check(text: [*:0]const u8) !Result {
         _ = c.close(fds[0]);
         if (c.dup2(fds[1], 1) < 0) _exit(127);
         _ = c.close(fds[1]);
-        const args = [_:null]?[*:0]const u8{ "python3", "tools/check_prose.py", "--text", text };
-        _ = execvp("python3", &args);
+        const tool = c.getenv("ZSQT_PROSE_TOOL") orelse "zig-out/test-bin/check-prose";
+        const args = [_:null]?[*:0]const u8{ tool, "--text", text };
+        _ = execvp(tool, &args);
         _exit(127);
     }
     _ = c.close(fds[1]);
@@ -81,4 +82,61 @@ test "flags unclosed fences" {
     const result = try check("```sh\necho test\n");
     try std.testing.expectEqual(1, result.exit_code);
     try std.testing.expect(std.mem.indexOf(u8, result.output[0..result.len], "unclosed code fence") != null);
+}
+
+test "matches Unicode boundaries and line separators" {
+    const result = try check("Certaınly helpful.\rWe—work.\nHello.\u{a0}Hello again.\n");
+    try std.testing.expectEqual(1, result.exit_code);
+    const output = result.output[0..result.len];
+    for ([_][]const u8{ "1: prohibited phrase: Certaınly", "2: prohibited punctuation: —", "2: prohibited phrase: We", "3: repeated sentence opening: hello" }) |expected| {
+        try std.testing.expect(std.mem.indexOf(u8, output, expected) != null);
+    }
+}
+
+test "fence lengths and inline code spans are respected" {
+    const result = try check("````text\nThis; is you!\n```\nstill; ignored\n````\nUse ``you ` ;`` safely.\n");
+    try std.testing.expectEqual(0, result.exit_code);
+    try std.testing.expectEqual(0, result.len);
+}
+
+test "project scan checks Markdown and excludes vendored paths" {
+    const process = @import("process_support.zig");
+    const Native = struct {
+        extern "c" fn mkdtemp([*:0]u8) ?[*:0]u8;
+    };
+    var dir: [128]u8 = @splat(0);
+    const template = ".zig-cache/tmp/prose-test-XXXXXX";
+    @memcpy(dir[0..template.len], template);
+    if (Native.mkdtemp(@ptrCast(&dir)) == null) return error.MkdtempFailed;
+    defer {
+        const cleanup = [_:null]?[*:0]const u8{ "rm", "-rf", "--", @ptrCast(&dir) };
+        _ = process.run(&cleanup, null) catch {};
+    }
+    var vendor_buf: [200]u8 = undefined;
+    const vendor = try std.fmt.bufPrintSentinel(&vendor_buf, "{s}/vendor", .{std.mem.sliceTo(&dir, 0)}, 0);
+    if (c.mkdir(vendor.ptr, 0o700) != 0) return error.MkdirFailed;
+    var ignored_buf: [220]u8 = undefined;
+    const ignored = try std.fmt.bufPrintSentinel(&ignored_buf, "{s}/ignored.md", .{vendor}, 0);
+    var main_buf: [220]u8 = undefined;
+    const main = try std.fmt.bufPrintSentinel(&main_buf, "{s}/README.md", .{std.mem.sliceTo(&dir, 0)}, 0);
+    for ([_]struct { path: [*:0]const u8, text: []const u8 }{ .{ .path = ignored.ptr, .text = "You!" }, .{ .path = main.ptr, .text = "Valid project prose.\n" } }) |file| {
+        const fd = c.open(file.path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(c.mode_t, 0o600));
+        if (fd < 0) return error.OpenFailed;
+        const written = c.write(fd, file.text.ptr, file.text.len);
+        _ = c.close(fd);
+        if (written != file.text.len) return error.WriteFailed;
+    }
+    const tool = c.getenv("ZSQT_PROSE_TOOL") orelse "zig-out/test-bin/check-prose";
+    const args = [_:null]?[*:0]const u8{ tool, "--root", @ptrCast(&dir) };
+    const clean = try process.run(&args, null);
+    try std.testing.expectEqual(@as(c_int, 0), clean.status);
+    const fd = c.open(main.ptr, .{ .ACCMODE = .WRONLY, .TRUNC = true });
+    if (fd < 0) return error.OpenFailed;
+    const written = c.write(fd, "You!\n", 5);
+    _ = c.close(fd);
+    if (written != 5) return error.WriteFailed;
+    const bad = try process.run(&args, null);
+    try std.testing.expect(bad.status != 0);
+    try std.testing.expect(std.mem.indexOf(u8, bad.out(), "README.md:1: prohibited") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bad.out(), "ignored.md") == null);
 }

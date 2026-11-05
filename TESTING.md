@@ -36,19 +36,23 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
-The prose checker covers project-owned Markdown and skips code spans and fenced code. It checks selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
+The prose checker covers project-owned Markdown and skips code spans and fenced code. Input files exceeding 64 MiB are rejected. The checker covers selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
 
 ## Running tests
 
-The Zig test step runs the Zig suites and the existing C security harness. It builds a separate test executable without replacing `zig-out/bin/zsqt`. On Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Python tools, so Python 3 and Git are required.
+The Zig test step runs the Zig suites and the existing C security harness. It builds a separate test executable without replacing `zig-out/bin/zsqt`. On Linux x86_64 it also builds a static executable for the syscall audit. The prose and release-policy suites invoke the production Zig tools. Git is required for release-policy tests.
 
 ```sh
 mkdir -p .zig-cache/global .zig-cache/local .zig-cache/tmp
-python3 tools/check_prose.py
 ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" \
 ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" \
 TMPDIR="$PWD/.zig-cache/tmp" \
 ./tools/zig/zig build test -Doptimize=ReleaseSmall
+ZIG_GLOBAL_CACHE_DIR="$PWD/.zig-cache/global" \
+ZIG_LOCAL_CACHE_DIR="$PWD/.zig-cache/local" \
+TMPDIR="$PWD/.zig-cache/tmp" \
+./tools/zig/zig build tools -Doptimize=ReleaseSmall
+zig-out/tools/check-prose
 ```
 
 Fixtures use `.zig-cache/tmp`. The diagnostics suite runs against the regular test executable. Current CI configuration also tests the static production executable and its aarch64 counterpart.

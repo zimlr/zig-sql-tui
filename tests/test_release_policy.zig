@@ -29,31 +29,23 @@ fn rootPath(buffer: []u8, suffix: []const u8) ![:0]const u8 {
     return std.fmt.bufPrintSentinel(buffer, "{s}/{s}", .{ std.mem.sliceTo(cwd, 0), suffix }, 0);
 }
 
-fn python(code: [*:0]const u8, arguments: []const [*:0]const u8) !process.Result {
-    var tools_buf: [4096]u8 = undefined;
-    const tools = try rootPath(&tools_buf, "tools");
-    var argv: [32:null]?[*:0]const u8 = @splat(null);
-    argv[0] = "python3";
-    argv[1] = "-c";
-    argv[2] = code;
-    argv[3] = tools.ptr;
-    if (arguments.len > 28) return error.TooManyArguments;
-    for (arguments, 0..) |arg, i| argv[i + 4] = arg;
-    return process.run(&argv, null);
+fn policy(args: []const [*:0]const u8) !process.Result {
+    var argv: [32][*:0]const u8 = undefined;
+    if (args.len > 31) return error.TooManyArguments;
+    argv[0] = c.getenv("ZSQT_RELEASE_POLICY") orelse "zig-out/test-bin/release-policy";
+    @memcpy(argv[1..][0..args.len], args);
+    return run(argv[0 .. args.len + 1], null);
 }
-
-const parse_code = "import sys; sys.path.insert(0,sys.argv[1]); import release_policy as p; p.parse_version(sys.argv[2]); print('valid')";
-const compare_code = "import sys; sys.path.insert(0,sys.argv[1]); import release_policy as p; print(p.compare(p.parse_version(sys.argv[2]),p.parse_version(sys.argv[3])))";
 
 test "SemVer precedence and metadata" {
     const tags = [_][*:0]const u8{ "v1.0.0-alpha", "v1.0.0-alpha.1", "v1.0.0-alpha.beta", "v1.0.0-beta", "v1.0.0-beta.2", "v1.0.0-beta.11", "v1.0.0-rc.1", "v1.0.0", "v1.0.1", "v1.1.0", "v2.0.0" };
     for (tags[0 .. tags.len - 1], tags[1..]) |left, right| {
-        const result = try python(compare_code, &.{ left, right });
+        const result = try policy(&.{ "--compare", left, right });
         try success(&result);
         try std.testing.expectEqualStrings("-1\n", result.out());
     }
     for ([_][2][*:0]const u8{ .{ "v1.2.3+abc", "v1.2.3+42" }, .{ "v1.2.3-alpha+0", "v1.2.3-alpha" } }) |pair| {
-        const result = try python(compare_code, &pair);
+        const result = try policy(&.{ "--compare", pair[0], pair[1] });
         try success(&result);
         try std.testing.expectEqualStrings("0\n", result.out());
     }
@@ -61,11 +53,11 @@ test "SemVer precedence and metadata" {
 
 test "invalid and valid SemVer tags" {
     for ([_][*:0]const u8{ "1.0.0", "v01.0.0", "v1.01.0", "v1.0.01", "v1.0", "v1.0.0-01", "v1.0.0-alpha..1", "v1.0.0+", "v1.0.0-", "v1.0.0\n", "v1.0.0-α" }) |tag| {
-        const result = try python(parse_code, &.{tag});
-        try expectFailure(&result, "ValueError");
+        const result = try policy(&.{ "--parse", tag });
+        try expectFailure(&result, "Invalid SemVer");
     }
     for ([_][*:0]const u8{ "v0.0.0", "v1.0.0-0", "v1.0.0-01a", "v1.0.0+001", "v1.0.0--" }) |tag| {
-        const result = try python(parse_code, &.{tag});
+        const result = try policy(&.{ "--parse", tag });
         try success(&result);
         try std.testing.expectEqualStrings("valid\n", result.out());
     }
@@ -80,7 +72,7 @@ test "large SemVer numbers do not overflow" {
     @memcpy(right[0..2], "v1");
     @memset(right[2..5002], '0');
     @memcpy(right[5002..], ".0.0\x00");
-    const result = try python(compare_code, &.{ @ptrCast(&left), @ptrCast(&right) });
+    const result = try policy(&.{ "--compare", @ptrCast(&left), @ptrCast(&right) });
     try success(&result);
     try std.testing.expectEqualStrings("-1\n", result.out());
 }
@@ -96,7 +88,12 @@ const Repo = struct {
         if (mkdtemp(@ptrCast(self.path[0..].ptr)) == null) return error.MkdtempFailed;
         _ = template;
         errdefer self.deinit();
-        _ = try rootPath(&self.script, "tools/release_policy.py");
+        const tool = c.getenv("ZSQT_RELEASE_POLICY") orelse "zig-out/test-bin/release-policy";
+        if (tool[0] == '/') {
+            _ = try std.fmt.bufPrintSentinel(&self.script, "{s}", .{std.mem.span(tool)}, 0);
+        } else {
+            _ = try rootPath(&self.script, std.mem.span(tool));
+        }
         try self.gitOk(&.{ "init", "-q" });
         try self.write("file", "one");
         try self.gitOk(&.{ "add", "file" });
@@ -151,7 +148,7 @@ const Repo = struct {
 
     fn validate(self: *Repo, tag: [*:0]const u8, pages: []const u8) !process.Result {
         try self.write("releases.json", pages);
-        return run(&.{ "python3", @ptrCast(&self.script), tag, "--releases", "releases.json", "--commit", "HEAD" }, @ptrCast(&self.path));
+        return run(&.{ @ptrCast(&self.script), tag, "--releases", "releases.json", "--commit", "HEAD" }, @ptrCast(&self.path));
     }
 };
 
@@ -160,19 +157,14 @@ const published = "[{\"tag_name\":\"v1.0.0\",\"draft\":false}]";
 test "paginated release API input" {
     var repo = try Repo.init();
     defer repo.deinit();
-    const read_code = "import sys,json,pathlib; sys.path.insert(0,sys.argv[1]); import release_policy as p; print(json.dumps(p.read_pages(pathlib.Path(sys.argv[2])),separators=(',',':')))";
-    var response_buf: [4200]u8 = undefined;
-    const response = try std.fmt.bufPrintSentinel(&response_buf, "{s}/releases.json", .{std.mem.sliceTo(&repo.path, 0)}, 0);
-    try repo.write("releases.json", "[{\"tag_name\":\"v1.0.0\",\"draft\":false}]\n[]\n");
-    const good = try python(read_code, &.{response.ptr});
+    const good = try repo.validate("v1.0.0", "[]\n\u{a0}[]\u{2003}");
     try success(&good);
-    try std.testing.expectEqualStrings("[[{\"tag_name\":\"v1.0.0\",\"draft\":false}],[]]\n", good.out());
-    try repo.write("releases.json", "");
-    const empty = try python(read_code, &.{response.ptr});
+    const empty = try repo.validate("v1.0.0", "");
     try expectFailure(&empty, "empty");
-    try repo.write("releases.json", "[]\n{");
-    const malformed = try python(read_code, &.{response.ptr});
-    try expectFailure(&malformed, "JSONDecodeError");
+    const malformed = try repo.validate("v1.0.0", "[]\n{");
+    try expectFailure(&malformed, "paginated release arrays");
+    const escaped = try repo.validate("v1.0.0", "[{\"tag_name\":\"draft\",\"draft\":true,\"body\":\"]}\\\"[\"}]\n[]");
+    try success(&escaped);
 }
 
 test "first release and existing tag or draft" {
@@ -264,4 +256,30 @@ test "reverted contents are not a new release" {
     try repo.change("one", "revert contents");
     const result = try repo.validate("v1.0.1", published);
     try expectFailure(&result, "No tracked changes");
+}
+
+test "malformed release responses fail closed" {
+    var repo = try Repo.init();
+    defer repo.deinit();
+    for ([_][]const u8{
+        "[] trailing",                             "[",                                                          "[{}", "[null]", "[true]", "{}", "[] null",
+        "[{\"tag_name\":\"v1.0.0\",\"draft\":0}]", "[{\"tag_name\":\"v1.0.0\",\"draft\":false,\"draft\":true}]",
+    }) |pages| {
+        const result = try repo.validate("v1.0.0", pages);
+        try std.testing.expect(result.status != 0);
+    }
+}
+
+test "very large prerelease numbers retain precedence" {
+    var left: [5012]u8 = undefined;
+    var right: [5013]u8 = undefined;
+    @memcpy(left[0..7], "v1.0.0-");
+    @memset(left[7..5007], '9');
+    left[5007] = 0;
+    @memcpy(right[0..8], "v1.0.0-1");
+    @memset(right[8..5008], '0');
+    right[5008] = 0;
+    const result = try policy(&.{ "--compare", @ptrCast(&left), @ptrCast(&right) });
+    try success(&result);
+    try std.testing.expectEqualStrings("-1\n", result.out());
 }
