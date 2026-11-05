@@ -5,7 +5,7 @@
 
 # zsqt
 
-zsqt is a keyboard-first SQLite terminal browser and editor that opens databases read-only by default.
+zsqt is a keyboard-first terminal user interface (TUI) for browsing and editing SQLite databases. It opens databases read-only by default.
 
 ## Features
 
