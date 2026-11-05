@@ -42,7 +42,7 @@ This project is a Zig TUI for browsing and editing SQLite databases. Primary tar
 
 # Read-only and write modes
 
-- Open databases in read-only mode by default. Show `[RO]` or `[RW]` in the status line at all times.
+- Open databases in read-only mode by default. Show `[RO]` or `[RW]` in the title line whenever the interface is drawn.
 - Provide `:set readonly` and `:set ro` for read-only mode, and `:set write` and `:set rw` for write mode.
 - Require explicit user action and confirmation before entering write mode. Make the changed mode immediately visible.
 - In read-only mode, disable cell edits, row insertion and deletion, schema changes, and write SQL. Enforce this at the SQLite connection boundary as well as in the UI.
