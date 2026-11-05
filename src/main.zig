@@ -1294,7 +1294,7 @@ fn draw(a: *App) void {
         printAt(a.height - 2, 1, a.cols, a.message.slice());
         printAt(a.height - 1, 1, a.cols, if (a.writable) "Tab: panel []:page e:edit ?:help q:quit" else "Tab: panel []:page i:SQL ?:help q:quit");
     } else {
-        const prompt: []const u8 = if (a.input.truncated) "Input limit reached. Shorten or clear input" else if (!std.unicode.utf8ValidateSlice(a.input.slice())) "Invalid UTF-8. Correct or clear input" else if (a.mode == .command) "Tab: complete  Enter: go  Esc: cancel  ^U: clear" else "Append-only Enter:go Esc:cancel ^U:clear";
+        const prompt: []const u8 = if (a.input.truncated) "Input limit reached. Shorten or clear input" else if (!std.unicode.utf8ValidateSlice(a.input.slice())) "Invalid UTF-8. Correct or clear input" else if (a.mode == .command) "Tab: complete  Enter: go  Esc: cancel  ^U: clear" else "Bksp:del  Enter:go  Esc:cancel  ^U:clear";
         printAt(a.height - 2, 1, a.cols, prompt);
         const label: []const u8 = switch (a.mode) {
             .command => ":",

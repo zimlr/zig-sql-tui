@@ -45,29 +45,40 @@ Use `-Dtarget=aarch64-linux-musl` for aarch64 Linux. The executable is installed
 
 ## Usage
 
-The title shows the database path, focused panel, interaction mode, and access state. `[RO]` indicates read-only mode, and `[RW]` indicates write mode.
+The title shows the access state, interaction mode, focused panel, and database path. `[RO]` marks read-only access, and `[RW]` marks write mode. The mode field shows `NORMAL`, `COMMAND`, `SEARCH`, `INSERT`, `HELP`, or `CONFIRM`.
 
 | Action | Keys |
 | --- | --- |
-| Switch panels | Tab or Enter |
+| Cycle panels | Tab or Enter |
+| Move from the table list into the rows | `l` |
+| Move from the details panel back to the rows | `h` |
 | Move through items or columns | Arrow keys or `hjkl` |
 | Move by a count | `5j`, `5k`, `5h`, or `5l` |
-| Move to the first or last item on a page | `gg` or `G`, Home or End |
-| Scroll by a screen | Page Up or Page Down |
-| Change table or row page | `[` or `]` |
-| Change column page | `<` or `>` |
-| Search all pages in the selected table, query, or table list | `/`, then `n` or `N` |
+| Move to the first or last item on a page | `gg`, `G`, Home, or End |
+| Move to the fifth item | `5gg` or `5G` |
+| Scroll the details value | `j`, `k`, Page Up, or Page Down |
+| Move to the start or end of the details value | Home or End |
+| Change the table or row page | `[` or `]` |
+| Change the column page | `<` or `>` |
+| Search the table list or rows | `/`, then `n` or `N` |
 | Enter SQL | `i` |
-| Edit a selected cell | `e` in write mode |
+| Edit the selected cell | `e` in write mode |
+| Set the selected cell to NULL | `:null` in write mode |
 | Show help | `?` or `:help` |
-| Reload or quit | `:reload` or `q` |
-| Complete commands | `Tab` after `:` and repeat to cycle matches |
+| Reload the database | `:reload` |
+| Change access mode | `:set rw` or `:set ro` |
+| Quit | `q`, `:q`, or `:quit` |
+| Complete a command | `Tab` after `:` |
 
-Select a table, then press Tab to browse its rows. The page indicator uses `+` when another page is available. Search wraps across pages in the focused table list or rows. Cycle to the details panel to inspect a cell.
+Counts apply to `hjkl`, `gg`, and `G`. Each page holds 128 tables, 500 rows, or 32 columns, and the page label shows `+` while another page exists. A search wraps across pages and matches text values and BLOB size labels. The table list and rows accept a search, and the details panel reports that one of those panels is required.
 
-When the terminal sends mouse events, pointer controls can select tabs and rows, change pages with `[<]` and `[>]`, and scroll. Each wheel or drag motion event moves at most one item.
+Commands are `help`, `null`, `reload`, `set ro`, `set readonly`, `set rw`, `set write`, `q`, and `quit`. `Tab` cycles through commands that match the input, and an unknown command shows a reminder about the help screen.
 
-SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear input, Enter to submit, or Esc to cancel.
+Input accepts up to 4096 UTF-8 bytes and ignores arrow keys. Backspace or Ctrl-H deletes the last character, Ctrl-U clears the input, Enter submits, and Esc cancels. A confirmation accepts `y` or `Y`, and `n`, `N`, or Esc cancels. Other keys are ignored while a confirmation is pending, including `q`. The help screen closes on any key.
+
+Mouse support requires a terminal that reports SGR mouse events. A click selects a panel tab, a row, or a column, and the `[<]` and `[>]` labels change pages. The wheel and drag gestures move at most one item per event.
+
+The interface requires a terminal of at least 40 columns by 12 rows. Below that size only Esc, `n`, `N`, and `q` have an effect.
 
 ### Write data
 
@@ -75,7 +86,7 @@ SQL and cell input are append-only and ignore arrow keys. Press Ctrl-U to clear 
 2. Select a table cell and press `e`. Enter a value and press Enter.
 3. Confirm the change with `y`. Enter `:set ro` to return to read-only mode.
 
-Write SQL entered with `i` also requires confirmation. Use `:null` to set a selected cell to NULL. Cell editing is available for eligible table rows, not query results. Use `:reload` to return to the table view.
+Write SQL entered with `i` requires confirmation and shows `Execute this database write? y/n`. `:null` sets the selected cell to NULL after confirmation. Cell editing applies to eligible table rows and not to query results. A BLOB cell opens as hexadecimal text of up to 2048 bytes, and a NULL cell opens an empty field. Press `:reload` to return to the table view.
 
 ### Shell completion
 
