@@ -24,7 +24,7 @@ termux_step_setup_toolchain() {
 termux_step_configure() { :; }
 termux_step_make() { :; }
 termux_step_make_install() {
-    install -Dm700 "$TERMUX_PKG_BUILDER_DIR/zig-sql-tui" "$TERMUX_PREFIX/bin/zig-sql-tui"
+    install -Dm700 "$TERMUX_PKG_BUILDER_DIR/zsqt" "$TERMUX_PREFIX/bin/zsqt"
 }
 # No package is published from this test recipe.
 termux_step_install_license() { :; }

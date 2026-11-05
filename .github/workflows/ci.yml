@@ -61,13 +61,13 @@ jobs:
       - name: Build and test diagnostics
         run: |
           ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true -Ddiagnostics=true --prefix .zig-cache/debug-x86
-          ZIG_SQL_TUI_DEBUG_EXE="$PWD/.zig-cache/debug-x86/bin/zig-sql-tui" python3 -m unittest discover -s tests -p 'test_diagnostics.py' -v
+          ZSQT_DEBUG_EXE="$PWD/.zig-cache/debug-x86/bin/zsqt" python3 -m unittest discover -s tests -p 'test_diagnostics.py' -v
           ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true -Ddiagnostics=true --prefix .zig-cache/debug-arm
           mkdir -p .zig-cache/debug-package .zig-cache/debug-transfer
-          cp .zig-cache/debug-arm/bin/zig-sql-tui .zig-cache/debug-package/zig-sql-tui-debug
-          chmod +x .zig-cache/debug-package/zig-sql-tui-debug
-          tar -czf .zig-cache/debug-transfer/zig-sql-tui-android-arm64-debug.tar.gz -C .zig-cache/debug-package zig-sql-tui-debug
-          (cd .zig-cache/debug-transfer && sha256sum zig-sql-tui-android-arm64-debug.tar.gz > SHA256SUMS)
+          cp .zig-cache/debug-arm/bin/zsqt .zig-cache/debug-package/zsqt-debug
+          chmod +x .zig-cache/debug-package/zsqt-debug
+          tar -czf .zig-cache/debug-transfer/zsqt-android-arm64-debug.tar.gz -C .zig-cache/debug-package zsqt-debug
+          (cd .zig-cache/debug-transfer && sha256sum zsqt-android-arm64-debug.tar.gz > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: termux-debug-aarch64
@@ -77,7 +77,7 @@ jobs:
           retention-days: 1
       - name: Check static linkage
         run: |
-          for binary in zig-out/bin/zig-sql-tui .zig-cache/arm-output/bin/zig-sql-tui .zig-cache/debug-x86/bin/zig-sql-tui .zig-cache/debug-arm/bin/zig-sql-tui; do
+          for binary in zig-out/bin/zsqt .zig-cache/arm-output/bin/zsqt .zig-cache/debug-x86/bin/zsqt .zig-cache/debug-arm/bin/zsqt; do
             header=$(readelf -h "$binary")
             programs=$(readelf -l "$binary")
             dynamic=$(readelf -d "$binary")
@@ -88,9 +88,9 @@ jobs:
       - name: Prepare aarch64 test artifact
         run: |
           mkdir -p .zig-cache/arm-transfer
-          cp .zig-cache/arm-output/bin/zig-sql-tui .zig-cache/arm-transfer/
+          cp .zig-cache/arm-output/bin/zsqt .zig-cache/arm-transfer/
           cd .zig-cache/arm-transfer
-          sha256sum zig-sql-tui > SHA256SUMS
+          sha256sum zsqt > SHA256SUMS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: aarch64-linux-musl-test
@@ -114,7 +114,7 @@ jobs:
         run: |
           test "$(uname -m)" = aarch64
           (cd zig-out/bin && sha256sum -c SHA256SUMS)
-          chmod +x zig-out/bin/zig-sql-tui
+          chmod +x zig-out/bin/zsqt
           mkdir -p .zig-cache/tmp
           python3 -m unittest discover -s tests -p 'test_*.py' -v
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -125,5 +125,5 @@ jobs:
         run: |
           (cd .zig-cache/debug-transfer && sha256sum -c SHA256SUMS)
           mkdir -p .zig-cache/debug-native
-          tar -xzf .zig-cache/debug-transfer/zig-sql-tui-android-arm64-debug.tar.gz -C .zig-cache/debug-native
-          ZIG_SQL_TUI_DEBUG_EXE="$PWD/.zig-cache/debug-native/zig-sql-tui-debug" python3 -m unittest discover -s tests -p 'test_diagnostics.py' -v
+          tar -xzf .zig-cache/debug-transfer/zsqt-android-arm64-debug.tar.gz -C .zig-cache/debug-native
+          ZSQT_DEBUG_EXE="$PWD/.zig-cache/debug-native/zsqt-debug" python3 -m unittest discover -s tests -p 'test_diagnostics.py' -v

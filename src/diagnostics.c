@@ -146,15 +146,15 @@ int app_diagnostics(void) {
     unsigned char *bytes = NULL;
     sqlite3_int64 size = 0;
     const char *names[] = {"rollback.sqlite", "wal.sqlite", "recovery.sqlite"};
-    puts("zig-sql-tui debug self-test");
+    puts("zsqt debug self-test");
     puts("Uses disposable fixtures in the application's config directory. No user database is opened.");
     puts("Tests database operations, not interactive TUI confirmation prompts.");
     fflush(stdout);
     if (!home || !*home || (home_fd = app_open_directory(home)) < 0) goto setup_failed;
     struct stat st;
     if (fstat(home_fd, &st) || st.st_uid != geteuid() || (st.st_mode & 0022)) goto setup_failed;
-    if (mkdirat(home_fd, ".zig-sql-tui", 0700) && errno != EEXIST) goto setup_failed;
-    config_fd = openat(home_fd, ".zig-sql-tui", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (mkdirat(home_fd, ".zsqt", 0700) && errno != EEXIST) goto setup_failed;
+    config_fd = openat(home_fd, ".zsqt", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (config_fd < 0 || fstat(config_fd, &st) || st.st_uid != geteuid() || (st.st_mode & 0022)) goto setup_failed;
     for (int tries = 0; tries < 10; ++tries) {
         unsigned long long random = 0;
@@ -174,7 +174,7 @@ int app_diagnostics(void) {
     bytes = sqlite3_serialize(seed, "main", &size, 0);
     if (!bytes || size <= 0) goto setup_failed;
     for (size_t i = 0; i < 3; ++i) {
-        int length = snprintf(paths[i], sizeof(paths[i]), "%s/.zig-sql-tui/%s/%s", home, dir_name, names[i]);
+        int length = snprintf(paths[i], sizeof(paths[i]), "%s/.zsqt/%s/%s", home, dir_name, names[i]);
         if (length < 0 || (size_t)length >= sizeof(paths[i]) || !fixture(dir_fd, names[i], bytes, size)) goto setup_failed;
     }
     sqlite3_free(bytes); bytes = NULL;

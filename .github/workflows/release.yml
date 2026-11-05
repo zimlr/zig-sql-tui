@@ -86,9 +86,9 @@ jobs:
       - name: Verify and collect release binaries
         run: |
           mkdir -p .zig-cache/release-candidates
-          cp zig-out/bin/zig-sql-tui .zig-cache/release-candidates/zig-sql-tui-x86_64-linux-musl
-          cp .zig-cache/arm-output/bin/zig-sql-tui .zig-cache/release-candidates/zig-sql-tui-aarch64-linux-musl
-          for binary in .zig-cache/release-candidates/zig-sql-tui-*; do
+          cp zig-out/bin/zsqt .zig-cache/release-candidates/zsqt-x86_64-linux-musl
+          cp .zig-cache/arm-output/bin/zsqt .zig-cache/release-candidates/zsqt-aarch64-linux-musl
+          for binary in .zig-cache/release-candidates/zsqt-*; do
             header=$(readelf -h "$binary")
             programs=$(readelf -l "$binary")
             dynamic=$(readelf -d "$binary")
@@ -96,7 +96,7 @@ jobs:
             if grep -q INTERP <<< "$programs"; then exit 1; fi
             if grep -q '(NEEDED)' <<< "$dynamic"; then exit 1; fi
           done
-          (cd .zig-cache/release-candidates && sha256sum zig-sql-tui-* > SHA256SUMS)
+          (cd .zig-cache/release-candidates && sha256sum zsqt-* > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-candidates
@@ -121,8 +121,8 @@ jobs:
           test "$(uname -m)" = aarch64
           (cd .zig-cache/release-candidates && sha256sum -c SHA256SUMS)
           mkdir -p zig-out/bin .zig-cache/tmp
-          cp .zig-cache/release-candidates/zig-sql-tui-aarch64-linux-musl zig-out/bin/zig-sql-tui
-          chmod +x zig-out/bin/zig-sql-tui
+          cp .zig-cache/release-candidates/zsqt-aarch64-linux-musl zig-out/bin/zsqt
+          chmod +x zig-out/bin/zsqt
           python3 -m unittest discover -s tests -p 'test_*.py' -v
 
   publish:
@@ -158,17 +158,17 @@ jobs:
           for arch in x86_64 aarch64; do
             dir=".zig-cache/tmp/package-$arch"
             mkdir -p "$dir"
-            cp ".zig-cache/release-candidates/zig-sql-tui-$arch-linux-musl" "$dir/zig-sql-tui"
-            chmod +x "$dir/zig-sql-tui"
+            cp ".zig-cache/release-candidates/zsqt-$arch-linux-musl" "$dir/zsqt"
+            chmod +x "$dir/zsqt"
             cp README.md RELEASING.md DEPENDENCIES.md TESTING.md "$dir/"
             mkdir -p "$dir/docs"
             cp docs/building.md docs/limitations.md "$dir/docs/"
             mkdir -p "$dir/assets"
-            cp assets/zig-sql-tui-logo.png "$dir/assets/zig-sql-tui-logo.png"
+            cp assets/zsqt-logo.png "$dir/assets/zsqt-logo.png"
             cp vendor/sqlite/LICENSE.md "$dir/SQLITE-LICENSE.md"
-            tar -czf ".zig-cache/release/zig-sql-tui-$VERSION-$arch-linux-musl.tar.gz" -C "$dir" .
+            tar -czf ".zig-cache/release/zsqt-$VERSION-$arch-linux-musl.tar.gz" -C "$dir" .
           done
-          (cd .zig-cache/release && sha256sum zig-sql-tui-*.tar.gz > SHA256SUMS)
+          (cd .zig-cache/release && sha256sum zsqt-*.tar.gz > SHA256SUMS)
           cat > .zig-cache/tmp/release-notes.md <<'EOF'
           The aarch64 artifact targets Linux. Broader Termux compatibility remains unverified, and Android policies may cause additional failures.
           EOF
