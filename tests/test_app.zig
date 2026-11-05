@@ -269,3 +269,44 @@ test "exclusive and pending database locks are rejected" {
     lock.type = c.F.UNLCK;
     if (c.fcntl(fd, c.F.SETLK, &lock) != 0) return error.UnlockFailed;
 }
+
+test "mutated databases cannot crash or change during read-only checks" {
+    for (0..64) |index| {
+        var db = try fixture();
+        defer db.deinit();
+        const path: [*:0]const u8 = @ptrCast(&db.path);
+        const fd = c.open(path, .{ .ACCMODE = .RDWR });
+        if (fd < 0) return error.OpenFailed;
+        const length = c.lseek(fd, 0, 2);
+        if (length <= 100) {
+            _ = c.close(fd);
+            return error.FixtureTooSmall;
+        }
+        const offset: c.off_t = if (index < 16) @intCast(index) else @intCast(100 + ((index - 16) * 157) % @as(usize, @intCast(length - 100)));
+        var byte: [1]u8 = undefined;
+        if (c.pread(fd, &byte, 1, offset) != 1) {
+            _ = c.close(fd);
+            return error.ReadFailed;
+        }
+        byte[0] ^= 0xff;
+        if (c.pwrite(fd, &byte, 1, offset) != 1) {
+            _ = c.close(fd);
+            return error.WriteFailed;
+        }
+        _ = c.close(fd);
+        const before = try digest(path);
+        const result = try support.runCheck(path);
+        try std.testing.expectEqual(@as(c_int, 0), result.status & 0x7f);
+        if (index < 16) try std.testing.expect(result.status != 0);
+        try std.testing.expectEqual(before, try digest(path));
+        for (result.stderr[0..result.stderr_len]) |ch| {
+            try std.testing.expect(ch >= 0x20 or ch == '\n' or ch == '\r' or ch == '\t');
+            try std.testing.expect(ch != 0x7f);
+        }
+        var sidecar: [350]u8 = undefined;
+        for ([_][]const u8{ "-wal", "-shm", "-journal" }) |suffix| {
+            const name = try std.fmt.bufPrintSentinel(&sidecar, "{s}{s}", .{ std.mem.sliceTo(&db.path, 0), suffix }, 0);
+            try std.testing.expect(c.access(name.ptr, 0) != 0);
+        }
+    }
+}

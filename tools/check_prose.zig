@@ -263,7 +263,7 @@ fn walk(alloc: Allocator, parent: []const u8, failed: *bool) !void {
     for (entries.items) |entry| {
         if (entry.is_dir or !std.mem.endsWith(u8, entry.name, ".md")) continue;
         const full = try std.fmt.allocPrintSentinel(alloc, "{s}{s}{s}", .{ parent, if (parent.len == 0) "" else "/", entry.name }, 0);
-        const data = try io.readFile(alloc, full.ptr);
+        const data = try io.readMarkdown(alloc, full.ptr);
         const prefix = try std.fmt.allocPrint(alloc, "{s}:", .{full});
         if (try check(alloc, data, prefix)) failed.* = true;
     }

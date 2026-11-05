@@ -96,3 +96,4 @@ See [limitations](docs/limitations.md) for input, display, and editing bounds.
 - [Testing and Android diagnostics](TESTING.md)
 - [Dependencies](DEPENDENCIES.md)
 - [Release procedure](RELEASING.md)
+- [Security policy](SECURITY.md)

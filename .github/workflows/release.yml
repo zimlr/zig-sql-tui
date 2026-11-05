@@ -225,7 +225,7 @@ jobs:
             mkdir -p "$dir"
             cp ".zig-cache/release-candidates/zsqt-$arch-linux-musl" "$dir/zsqt"
             chmod +x "$dir/zsqt"
-            cp README.md RELEASING.md DEPENDENCIES.md TESTING.md "$dir/"
+            cp README.md RELEASING.md DEPENDENCIES.md TESTING.md SECURITY.md "$dir/"
             mkdir -p "$dir/docs"
             cp docs/building.md docs/limitations.md "$dir/docs/"
             mkdir -p "$dir/assets"

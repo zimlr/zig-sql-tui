@@ -16,7 +16,7 @@ After the initial release, select the version from the compatibility impact of a
 
 A prerelease identifier marks a prerelease, and build metadata does not affect precedence. Published versions are immutable. A candidate must have greater precedence than every published release, including prereleases. Numeric core and prerelease identifiers cannot contain leading zeroes.
 
-The workflow validates version syntax and precedence, but it cannot determine the compatibility impact of changes. Release API input exceeding 64 MiB is rejected. Inspect the changes before selecting the version. Request clarification when the impact or requested version is uncertain.
+The workflow validates version syntax and precedence, but it cannot determine the compatibility impact of changes. Release API input must be a regular file no larger than 64 MiB. The validation tool requires Linux `statx`. Inspect the changes before selecting the version. Request clarification when the impact or requested version is uncertain.
 
 ## Dispatch
 
@@ -36,6 +36,6 @@ The workflow rechecks release history and the default branch immediately before 
 
 The workflow verifies the pinned compiler and SQLite sources, runs the security and integration tests, and builds static PIE binaries for x86_64 and aarch64 Linux. A native Linux ARM runner also tests the aarch64 binary.
 
-The current workflow packages the binary, shell completions, project documentation, logo, and SQLite license for each architecture. Published `v1.0.0` assets use the former packaging. `SHA256SUMS` contains checksums for both archives. Broader Termux compatibility remains unverified and the release notes state that limitation.
+The current workflow packages the binary, shell completions, security policy, project documentation, logo, and SQLite license for each architecture. Published `v1.0.0` assets use the former packaging. `SHA256SUMS` contains checksums for both archives. Broader Termux compatibility remains unverified and the release notes state that limitation.
 
 A failure during publication can leave a tag or draft release. Inspect the repository state before retrying. Do not replace or delete an existing release or tag without explicit user authorization.

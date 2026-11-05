@@ -4,6 +4,8 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 
 ## Findings
 
+- [x] Reject nonregular release-history input without blocking. `tests/test_release_policy.zig` covers a named pipe.
+- [x] Reject symbolic links to Markdown files and nonregular Markdown files in the prose scan. `tests/test_prose.zig` covers symlinks and named pipes without following or blocking on them.
 - [x] Reject symbolic links and group-writable or world-writable cache directories during Termux probe setup. The check assumes the workspace is not modified concurrently by the same user.
 - [x] Reject workspace paths that can be split or expanded by the upstream Termux PIE script. The Zig probe fails before running the script when its temporary path contains whitespace or glob characters.
 - [x] Escape SQLite error text before terminal output. A malformed schema could inject terminal controls through startup errors. `tests/test_live_audit.zig` covers the reported path.
@@ -25,18 +27,18 @@ Validation uses disposable databases under `.zig-cache/tmp`. Results cover the e
 - [x] Trace selected filesystem and network syscalls during read checks and confirmed writes in rollback and WAL modes on Linux x86_64. These traces cover tested execution paths.
 - [x] Verify transferred executable checksums and reject a modified test helper in a local manifest check. These checksums detect mismatches but do not authenticate an artifact and manifest obtained together.
 - [x] Run the integration, diagnostic, restricted-syscall, release-policy, completion, and prose suites against the current x86_64 build. The checks cover their tested inputs and paths, not all possible behavior.
-- [x] Probe 48 deterministic byte mutations and 16 invalid SQLite headers with the x86_64 `--check` binary. Invalid headers were rejected, and no tested file changed or produced a sidecar. The 48 byte mutations remained readable and do not establish database integrity.
+- [x] Probe 48 deterministic byte mutations and 16 invalid SQLite headers with the x86_64 `--check` binary. Invalid headers were rejected, and no tested file changed or produced a sidecar. The earlier 48 byte mutations remained readable and do not establish database integrity. `tests/test_app.zig` repeats these checks with a separate fixture.
 - [x] Build x86_64 and aarch64 binaries and verify static linkage.
 - [x] Test SemVer parsing, precedence, release history, and changed-content checks against isolated Git repositories.
 - [x] Run the release workflow on GitHub after an explicit user request. The initial release completed in [CI run 41923948348](https://github.com/zimlr/zsqt/actions/runs/41923948348).
-- [x] Run the aarch64 binary and migrated Zig integration suites on native aarch64 Linux. [CI run 41986367334](https://github.com/zimlr/zsqt/actions/runs/41986367334) passed for commit `d4a0ee1`. Syscall tracing remains limited to x86_64.
-- [x] Package the aarch64 Linux executable with the pinned Termux build system and run restricted-syscall tests on native ARM. [Termux compatibility run 41986367166](https://github.com/zimlr/zsqt/actions/runs/41986367166) passed for commit `d4a0ee1`.
+- [x] Run the aarch64 binary and migrated Zig integration suites on native aarch64 Linux. [CI run 41988557746](https://github.com/zimlr/zsqt/actions/runs/41988557746) passed for commit `47aa2a1`. Syscall tracing remains limited to x86_64.
+- [x] Package the aarch64 Linux executable with the pinned Termux build system and run restricted-syscall tests on native ARM. [Termux compatibility run 41988557761](https://github.com/zimlr/zsqt/actions/runs/41988557761) passed for commit `47aa2a1`.
 - [x] Open a database and use touch, scrolling, Home, End, Page Up, and Page Down in Termux on Android 13. The result is a user report for a later ARM64 test build.
 - [x] Run the isolated diagnostics build in Termux on Android 13. A user reported passing read-only enforcement, rollback writes, WAL writes and reopen, hot-journal recovery, and cleanup.
 - [ ] Test TUI confirmation prompts for writes and recovery in the Termux app. The diagnostics flag exercises database operations without the interactive TUI.
 - [ ] Test durability under an actual power loss. The directory synchronization test injects a syscall failure instead.
 
-The prose checker covers project-owned Markdown and skips code spans and fenced code. Input files exceeding 64 MiB are rejected. The checker covers selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
+The prose checker covers project-owned Markdown and skips code spans and fenced code. Markdown file symlinks, nonregular Markdown files, and input files exceeding 64 MiB are rejected. Directory symlinks are not traversed. File checks require Linux `statx` and assume the workspace is not modified concurrently. The checker covers selected punctuation and phrases. Tone, pacing, and other non-mechanical rules require manual review. The syscall tests require Linux x86_64 and permission to use `ptrace`. They skip when those conditions are unavailable.
 
 ## Running tests
 

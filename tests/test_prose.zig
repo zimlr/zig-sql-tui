@@ -139,4 +139,23 @@ test "project scan checks Markdown and excludes vendored paths" {
     try std.testing.expect(bad.status != 0);
     try std.testing.expect(std.mem.indexOf(u8, bad.out(), "README.md:1: prohibited") != null);
     try std.testing.expect(std.mem.indexOf(u8, bad.out(), "ignored.md") == null);
+    const reset_fd = c.open(main.ptr, .{ .ACCMODE = .WRONLY, .TRUNC = true });
+    if (reset_fd < 0) return error.OpenFailed;
+    const reset = c.write(reset_fd, "Valid prose.\n", 13);
+    _ = c.close(reset_fd);
+    if (reset != 13) return error.WriteFailed;
+    var unsafe_buf: [220]u8 = undefined;
+    const unsafe = try std.fmt.bufPrintSentinel(&unsafe_buf, "{s}/unsafe.md", .{std.mem.sliceTo(&dir, 0)}, 0);
+    if (c.symlink("README.md", unsafe.ptr) != 0) return error.SymlinkFailed;
+    const linked = try process.run(&args, null);
+    try std.testing.expect(linked.status != 0);
+    try std.testing.expect(std.mem.indexOf(u8, linked.err(), "Could not read project Markdown") != null);
+    if (c.unlink(unsafe.ptr) != 0) return error.UnlinkFailed;
+    const Fifo = struct {
+        extern "c" fn mkfifo([*:0]const u8, c.mode_t) c_int;
+    };
+    if (Fifo.mkfifo(unsafe.ptr, 0o600) != 0) return error.MkfifoFailed;
+    const fifo = try process.runWithOptions(&args, .{ .timeout_seconds = 3 });
+    try std.testing.expect(fifo.status != 0);
+    try std.testing.expect(std.mem.indexOf(u8, fifo.err(), "Could not read project Markdown") != null);
 }

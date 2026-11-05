@@ -283,3 +283,18 @@ test "very large prerelease numbers retain precedence" {
     try success(&result);
     try std.testing.expectEqualStrings("-1\n", result.out());
 }
+
+test "release history rejects named pipes without blocking" {
+    const Native = struct {
+        extern "c" fn mkfifo([*:0]const u8, c.mode_t) c_int;
+    };
+    var repo = try Repo.init();
+    defer repo.deinit();
+    var path_buf: [4200]u8 = undefined;
+    const path = try std.fmt.bufPrintSentinel(&path_buf, "{s}/releases.json", .{std.mem.sliceTo(&repo.path, 0)}, 0);
+    if (Native.mkfifo(path.ptr, 0o600) != 0) return error.MkfifoFailed;
+    const args = [_:null]?[*:0]const u8{ @ptrCast(&repo.script), "v1.0.0", "--releases", "releases.json", "--commit", "HEAD" };
+    const result = try process.runWithOptions(&args, .{ .cwd = @ptrCast(&repo.path), .timeout_seconds = 3 });
+    try std.testing.expect(result.status != 0);
+    try std.testing.expect(std.mem.indexOf(u8, result.err(), "UnsafeInputFile") != null);
+}
