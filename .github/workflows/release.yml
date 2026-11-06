@@ -224,7 +224,7 @@ jobs:
     needs: build-and-test
     runs-on: ubuntu-26.04
     container:
-      image: ghcr.io/termux/package-builder@sha256:35692c4bf40ff2f5389a39897584765236ba3a5bf6906a2f1cd0ace3d3c502
+      image: ghcr.io/termux/package-builder@sha256:35692c4bf40ff2f5389a39897584765236baa3ae5bf6906a2f1cd0ace3d3c502
     defaults:
       run:
         shell: bash
