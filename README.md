@@ -121,3 +121,4 @@ See [limitations](docs/limitations.md) for input, display, and editing bounds.
 - [Dependencies](DEPENDENCIES.md)
 - [Release procedure](RELEASING.md)
 - [Security policy](SECURITY.md)
+- [Security review](SECURITY_REVIEW.md)
