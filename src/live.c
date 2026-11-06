@@ -35,8 +35,12 @@ static int safe_open(const char *path, int flags, int mode) {
         errno = EACCES; return -1;
     }
     /* Allowed names are single components, so O_NOFOLLOW covers the only
-     * possible symlink without requiring openat2, which Android may trap. */
-    int fd = openat(directory_fd, name, flags | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK, mode);
+     * possible symlink without requiring openat2, which Android may trap.
+     * Journals, WAL files, and the SHM index carry database pages or index
+     * state, so they are created owner-only. SQLite asks for 0644, which
+     * safe_fchmod also overrides after creation. */
+    int fd = openat(directory_fd, name, flags | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK,
+                    (flags & O_CREAT) ? 0600 : mode);
     if (fd >= 0) {
         struct stat st;
         if (fstat(fd, &st) || !S_ISREG(st.st_mode) || (strcmp(path, "/db") && st.st_nlink != 1)) {
@@ -66,6 +70,12 @@ static int safe_unlink(const char *path) {
     if (!name || !strcmp(path, "/db") || directory_fd < 0) { errno = EACCES; return -1; }
     if (!live_writable && strcmp(path, "/db-shm")) { errno = EACCES; return -1; }
     return unlinkat(directory_fd, name, 0);
+}
+/* robust_open retries the mode it asked for whenever a new sidecar is still
+ * empty, which would undo the owner-only mode passed to open. Strip every
+ * group and other bit so sidecars stay private to the database owner. */
+static int safe_fchmod(int fd, int mode) {
+    return fchmod(fd, mode & ~077);
 }
 static int safe_open_directory(const char *path, int *fd) {
     if (!allowed_name(path) || directory_fd < 0) return SQLITE_CANTOPEN;
@@ -147,6 +157,7 @@ static int prepare_vfs(void) {
     HOOK("stat", safe_stat);
     HOOK("access", safe_access);
     HOOK("unlink", safe_unlink);
+    HOOK("fchmod", safe_fchmod);
     HOOK("openDirectory", safe_open_directory);
 #undef HOOK
     restricted_vfs = *unix_vfs;

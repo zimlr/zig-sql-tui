@@ -163,3 +163,27 @@ test "clean WAL database opens read-only without sidecars" {
     try std.testing.expect(std.mem.indexOf(u8, t.output[0..t.len], "closed") != null);
     try t.quit();
 }
+
+test "read-only sidecars are created owner-only" {
+    var db = try support.Fixture.init("CREATE TABLE data(n TEXT); INSERT INTO data VALUES ('one')");
+    defer db.deinit();
+    try db.exec("PRAGMA journal_mode=WAL");
+    var name_buffer: [340]u8 = undefined;
+    for ([_][]const u8{ "-wal", "-shm" }) |suffix| {
+        const name = try std.fmt.bufPrint(&name_buffer, "{s}{s}\x00", .{ std.mem.sliceTo(&db.path, 0), suffix });
+        _ = c.unlink(@ptrCast(name.ptr));
+    }
+    const previous = c.umask(0);
+    defer _ = c.umask(previous);
+    const result = try support.runCheck(@ptrCast(&db.path));
+    try std.testing.expectEqual(@as(c_int, 0), result.status);
+    var seen: usize = 0;
+    for ([_][]const u8{ "-wal", "-shm" }) |suffix| {
+        const name = try std.fmt.bufPrint(&name_buffer, "{s}{s}\x00", .{ std.mem.sliceTo(&db.path, 0), suffix });
+        var status: std.os.linux.Statx = undefined;
+        if (c.statx(c.AT.FDCWD, @ptrCast(name.ptr), 0, .{ .MODE = true }, &status) != 0) continue;
+        seen += 1;
+        try std.testing.expectEqual(@as(u16, 0), status.mode & 0o077);
+    }
+    try std.testing.expect(seen > 0);
+}
