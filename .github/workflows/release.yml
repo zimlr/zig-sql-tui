@@ -281,7 +281,11 @@ jobs:
           esac
           gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
           gh release create "$VERSION" .zig-cache/release/* --draft --verify-tag --generate-notes --notes-file .zig-cache/tmp/release-notes.md "${args[@]}"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$VERSION" > .zig-cache/tmp/draft.json
+          # Draft releases are not returned by the release-by-tag endpoint.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > .zig-cache/tmp/releases-after-create.json
+          draft_id=$(jq -s -r --arg tag "$VERSION" '[.[][] | select(.tag_name == $tag and .draft == true)][0].id // empty' .zig-cache/tmp/releases-after-create.json)
+          test -n "$draft_id" || { echo 'Created draft release was not found.' >&2; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/releases/$draft_id" > .zig-cache/tmp/draft.json
           bash tools/verify_release_draft.sh "$VERSION" .zig-cache/release .zig-cache/tmp/draft.json
           current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq .sha)
           test "$current" = "$GITHUB_SHA" || { echo 'Default branch advanced. Inspect the draft release.' >&2; exit 1; }
