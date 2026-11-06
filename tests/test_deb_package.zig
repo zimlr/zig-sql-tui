@@ -162,7 +162,7 @@ test "release draft requires exact uploaded assets and digests" {
     }
     const dir = std.mem.sliceTo(&directory, 0);
     const tag = "v2.3.4";
-    const files = [_][]const u8{ "zsqt-v2.3.4-x86_64-linux-musl.tar.gz", "zsqt-v2.3.4-aarch64-linux-musl.tar.gz", "zsqt-v2.3.4-amd64.deb", "zsqt-v2.3.4-arm64.deb" };
+    const files = [_][]const u8{ "zsqt-v2.3.4-x86_64-linux-musl.tar.gz", "zsqt-v2.3.4-aarch64-linux-musl.tar.gz", "zsqt-v2.3.4-amd64.deb", "zsqt-v2.3.4-arm64.deb", "zsqt-v2.3.4-aarch64-termux.deb" };
     var digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash("fixture", &digest, .{});
     const hex = std.fmt.bytesToHex(digest, .lower);
@@ -187,8 +187,9 @@ test "release draft requires exact uploaded assets and digests" {
         \\{{"name":"{s}","state":"uploaded","digest":"sha256:{s}"}},
         \\{{"name":"{s}","state":"uploaded","digest":"sha256:{s}"}},
         \\{{"name":"{s}","state":"uploaded","digest":"sha256:{s}"}},
+        \\{{"name":"{s}","state":"uploaded","digest":"sha256:{s}"}},
         \\{{"name":"SHA256SUMS","state":"uploaded","digest":"sha256:{s}"}}]}}
-    , .{ tag, files[0], hex, files[1], hex, files[2], hex, files[3], hex, manifest_hex });
+    , .{ tag, files[0], hex, files[1], hex, files[2], hex, files[3], hex, files[4], hex, manifest_hex });
     defer std.testing.allocator.free(draft);
     var json_buf: [512]u8 = undefined;
     const json = try path(&json_buf, dir, "draft.json");

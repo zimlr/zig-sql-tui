@@ -49,13 +49,13 @@ Use `-Dtarget=aarch64-linux-musl` to build for aarch64 Linux. The output is `zig
 
 ## Debian packages
 
-The release workflow builds Debian packages for `amd64` and `arm64` from the corresponding static Linux executables. Package assembly requires `dpkg-deb`, `readelf`, and `xz`, plus the version tool installed by `zig build tools -Doptimize=ReleaseSmall`. Build a package from a static PIE executable with:
+The release workflow builds Debian packages for `amd64` and `arm64` from the corresponding static Linux executables. It also builds an `aarch64` Termux package with the Termux package builder. Package assembly requires `dpkg-deb`, `readelf`, and `xz`, plus the version tool installed by `zig build tools -Doptimize=ReleaseSmall`. Build a package from a static PIE executable with:
 
 ```sh
 ./tools/package_deb.sh v2.0.0 amd64 zig-out/bin/zsqt .zig-cache/tmp/zsqt-v2.0.0-amd64.deb
 ```
 
-The package output uses `/usr` paths and is not a Termux package. See [release procedure](../RELEASING.md) for version mapping and asset verification.
+The package output uses `/usr` paths. Termux packages come from `tools/package_termux_candidate.sh` and use `$PREFIX` paths. See [release procedure](../RELEASING.md) for version mapping and asset verification.
 
 ## Implementation
 

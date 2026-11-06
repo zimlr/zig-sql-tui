@@ -220,8 +220,48 @@ jobs:
           ZSQT_TEST_EXE="$PWD/.zig-cache/deb-root/usr/bin/zsqt" .zig-cache/release-candidates/wal-write-test
           ZSQT_TEST_EXE=zig-out/bin/zsqt .zig-cache/release-candidates/termux-restrictions-test
 
+  package-termux:
+    needs: build-and-test
+    runs-on: ubuntu-26.04
+    container:
+      image: ghcr.io/termux/package-builder@sha256:35692c4bf40ff2f5389a39897584765236ba3a5bf6906a2f1cd0ace3d3c502
+    defaults:
+      run:
+        shell: bash
+    env:
+      NDK: /home/builder/lib/android-ndk-r30
+      TERMUX_TOPDIR: ${{ github.workspace }}/.zig-cache/termux-build
+      TMPDIR: ${{ github.workspace }}/.zig-cache/tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-candidates
+          path: .zig-cache/release-candidates
+      - name: Build aarch64 Termux package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          mkdir -p .zig-cache/candidate .zig-cache/termux-release
+          cp .zig-cache/release-candidates/zsqt-aarch64-linux-musl .zig-cache/candidate/zsqt
+          chmod +x .zig-cache/candidate/zsqt
+          (cd .zig-cache/candidate && sha256sum zsqt > SHA256SUMS)
+          ZSQT_TERMUX_VERSION="$VERSION" \
+            ZSQT_TERMUX_DEB_OUT="$PWD/.zig-cache/termux-release/zsqt-$VERSION-aarch64-termux.deb" \
+            bash tools/package_termux_candidate.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: termux-debian-package
+          path: .zig-cache/termux-release/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
-    needs: [build-and-test, test-aarch64-linux]
+    needs: [build-and-test, test-aarch64-linux, package-termux]
     runs-on: ubuntu-26.04
     permissions:
       contents: write
@@ -234,6 +274,10 @@ jobs:
         with:
           name: release-candidates
           path: .zig-cache/release-candidates
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: termux-debian-package
+          path: .zig-cache/termux-release
       - name: Revalidate and publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -269,9 +313,10 @@ jobs:
           done
           cp ".zig-cache/release-candidates/zsqt-$VERSION-amd64.deb" ".zig-cache/release/zsqt-$VERSION-amd64.deb"
           cp ".zig-cache/release-candidates/zsqt-$VERSION-arm64.deb" ".zig-cache/release/zsqt-$VERSION-arm64.deb"
-          (cd .zig-cache/release && sha256sum "zsqt-$VERSION-x86_64-linux-musl.tar.gz" "zsqt-$VERSION-aarch64-linux-musl.tar.gz" "zsqt-$VERSION-amd64.deb" "zsqt-$VERSION-arm64.deb" > SHA256SUMS)
+          cp ".zig-cache/termux-release/zsqt-$VERSION-aarch64-termux.deb" ".zig-cache/release/zsqt-$VERSION-aarch64-termux.deb"
+          (cd .zig-cache/release && sha256sum "zsqt-$VERSION-x86_64-linux-musl.tar.gz" "zsqt-$VERSION-aarch64-linux-musl.tar.gz" "zsqt-$VERSION-amd64.deb" "zsqt-$VERSION-arm64.deb" "zsqt-$VERSION-aarch64-termux.deb" > SHA256SUMS)
           cat > .zig-cache/tmp/release-notes.md <<'EOF'
-          The aarch64 artifact targets Linux. Broader Termux compatibility remains unverified, and Android policies may cause additional failures.
+          The aarch64 artifact targets Linux. Broader Termux compatibility remains unverified, and Android policies may cause additional failures. The aarch64 Termux package installs under $PREFIX.
           EOF
           args=()
           case "$policy" in

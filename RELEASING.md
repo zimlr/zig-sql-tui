@@ -38,9 +38,9 @@ The workflow rechecks release history and the default branch immediately before 
 
 The workflow verifies the pinned compiler and SQLite sources, runs the security and integration tests, and builds static PIE binaries for x86_64 and aarch64 Linux. A native Linux ARM runner also tests the aarch64 binary.
 
-The workflow creates archives and Debian packages for x86_64 and aarch64 Linux. Each package includes the executable, shell completions, security policy, documentation, logo, and SQLite license. Published `v1.0.0` and `v2.0.0` releases do not contain Debian packages. `SHA256SUMS` covers both archives and both Debian packages.
+The workflow creates archives and Debian packages for x86_64 and aarch64 Linux, and a Termux package for aarch64. Each Debian package includes the executable, shell completions, security policy, documentation, logo, and SQLite license. Published `v1.0.0` and `v2.0.0` releases do not contain Debian packages. `SHA256SUMS` covers both archives, both Debian packages, and the Termux package.
 
-The Debian version preserves SemVer precedence. Prerelease identifiers use an encoded Debian representation, and build metadata is omitted from the package version. Control field `X-Zsqt-Release` retains the complete release tag. Debian packages install under `/usr` and are not Termux packages.
+The Debian version preserves SemVer precedence. Prerelease identifiers use an encoded Debian representation, and build metadata is omitted from the package version. Control field `X-Zsqt-Release` retains the complete release tag. Debian packages install under `/usr`. The Termux package declares the `aarch64` architecture and installs under `$PREFIX`.
 
 No project license or maintainer email address is declared in the repository. The Debian package records the maintainer name without an email address and includes the SQLite license separately. It is not represented as an official Debian archive package.
 
