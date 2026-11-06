@@ -25,7 +25,7 @@ tar -xzf zsqt-v2.0.0-x86_64-linux-musl.tar.gz
 ./zsqt path/to/database.sqlite
 ```
 
-Releases published with the current workflow include Debian packages for `amd64` and `arm64`. Published release `v2.0.0` contains archives only. Install a matching package on Debian-based Linux with `sudo dpkg -i ./zsqt-vX.Y.Z-amd64.deb`, replacing `vX.Y.Z` with the release tag. Debian packages use `/usr` paths and do not target Termux.
+Releases published with the current workflow include Debian packages for `amd64` and `arm64` and a Termux package for `aarch64`. Published release `v2.0.0` contains archives only. Install a matching package on Debian-based Linux with `sudo dpkg -i ./zsqt-vX.Y.Z-amd64.deb`, replacing `vX.Y.Z` with the release tag. Debian packages use `/usr` paths. Install the Termux package in Termux with `pkg install ./zsqt-vX.Y.Z-aarch64-termux.deb`, which uses `$PREFIX` paths.
 
 The `v1.0.0` release uses the former `zig-sql-tui` project and executable names. That release fails on Android 13 Termux with `Bad system call`. See [testing](TESTING.md) for Termux validation status.
 

@@ -8,8 +8,8 @@ tag=$1
 dir=$2
 json=$3
 [[ "$tag" =~ ^v[0-9A-Za-z.+-]+$ ]] || { echo 'Invalid release tag.' >&2; exit 1; }
-assets=("zsqt-$tag-x86_64-linux-musl.tar.gz" "zsqt-$tag-aarch64-linux-musl.tar.gz" "zsqt-$tag-amd64.deb" "zsqt-$tag-arm64.deb")
-jq -e --arg tag "$tag" '.draft == true and .tag_name == $tag and (.assets | length == 5)' "$json" >/dev/null
+assets=("zsqt-$tag-x86_64-linux-musl.tar.gz" "zsqt-$tag-aarch64-linux-musl.tar.gz" "zsqt-$tag-amd64.deb" "zsqt-$tag-arm64.deb" "zsqt-$tag-aarch64-termux.deb")
+jq -e --arg tag "$tag" '.draft == true and .tag_name == $tag and (.assets | length == 6)' "$json" >/dev/null
 for name in "${assets[@]}" SHA256SUMS; do
     file="$dir/$name"
     [ -f "$file" ] && [ ! -L "$file" ] || { echo "Missing regular release asset: $name" >&2; exit 1; }

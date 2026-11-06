@@ -87,11 +87,9 @@ jobs:
           retention-days: 1
       - name: Build and test diagnostics
         run: |
-          ./tools/zig/zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/debug-x86
-          ZSQT_TEST_EXE="$PWD/zig-out/bin/zsqt" ZSQT_DEBUG_EXE="$PWD/.zig-cache/debug-x86/bin/zsqt" ./tools/zig/zig test tests/test_diagnostics.zig -O ReleaseSmall -lc
-          ./tools/zig/zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseSmall -Dstrip=true --prefix .zig-cache/debug-arm
+          ZSQT_TEST_EXE="$PWD/zig-out/bin/zsqt" ./tools/zig/zig test tests/test_diagnostics.zig -O ReleaseSmall -lc
           mkdir -p .zig-cache/debug-package .zig-cache/debug-transfer
-          cp .zig-cache/debug-arm/bin/zsqt .zig-cache/debug-package/zsqt-debug
+          cp .zig-cache/arm-output/bin/zsqt .zig-cache/debug-package/zsqt-debug
           chmod +x .zig-cache/debug-package/zsqt-debug
           tar -czf .zig-cache/debug-transfer/zsqt-android-arm64-debug.tar.gz -C .zig-cache/debug-package zsqt-debug
           (cd .zig-cache/debug-transfer && sha256sum zsqt-android-arm64-debug.tar.gz > SHA256SUMS)
@@ -104,7 +102,7 @@ jobs:
           retention-days: 1
       - name: Check static linkage
         run: |
-          for binary in zig-out/bin/zsqt .zig-cache/arm-output/bin/zsqt .zig-cache/debug-x86/bin/zsqt .zig-cache/debug-arm/bin/zsqt; do
+          for binary in zig-out/bin/zsqt .zig-cache/arm-output/bin/zsqt; do
             header=$(readelf -h "$binary")
             programs=$(readelf -l "$binary")
             dynamic=$(readelf -d "$binary")
