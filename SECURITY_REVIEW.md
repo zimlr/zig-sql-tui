@@ -11,7 +11,7 @@ The review covered four areas.
 - The renderer, input parser, and argument handling in `src/main.zig`.
 - The self-test fixture handling in `src/diagnostics.c`.
 
-Review date: 2026-11-06. Runtime probing used a debug build of commit `4bc4b82` on x86_64 Linux. The probes drove `--check`, `--recover`, and the TUI through a pseudo-terminal harness.
+Review date: 2026-11-06. Runtime probing used debug builds of commit `4bc4b82` and of the tree with the sidecar fix, on x86_64 Linux. The probes drove `--check`, `--recover`, and the TUI through a pseudo-terminal harness.
 
 ## Method
 
@@ -19,6 +19,7 @@ Review date: 2026-11-06. Runtime probing used a debug build of commit `4bc4b82` 
 - Attack each assumption with hostile input, hostile paths, and hostile SQL.
 - Compare the database hash before and after each probe.
 - Record only behavior that a probe or a code reference confirms.
+- Repeat each boundary probe with malformed databases, hostile sidecars, unusual schemas, and terminal or signal events.
 - Add a regression test for every change.
 
 ## Checklist
@@ -34,6 +35,15 @@ Review date: 2026-11-06. Runtime probing used a debug build of commit `4bc4b82` 
 - [x] C-07 Resource limits hold. `randomblob(20000000)` fails with `too big`, SQL entry is capped at 4096 bytes, and the process heap limit is 320 MiB.
 - [x] C-08 Recovery requires an explicit confirmation. Declining the prompt leaves the database hash unchanged.
 - [x] C-09 Self-test fixtures use an owner-only directory, `O_NOFOLLOW`, random names, and `unlinkat` cleanup. The checks in `src/diagnostics.c` reject a home directory that another user owns or that group or other users can write.
+- [x] C-10 The input parser survives hostile byte sequences. SGR mouse reports, wheel events, a 5000 byte bracketed paste, malformed control sequences, invalid UTF-8, NUL bytes, and six random key runs of sixty events produced no panic and no diagnostic marker.
+- [x] C-11 Malformed database files fail closed. Garbage pages, a truncated file, a forged page size, a corrupted schema record, a random body, an empty file, and a header-only file each exit with status 1. No probe left a sidecar or journal file.
+- [x] C-12 Sidecar substitution fails closed for every suffix. A `-wal`, `-shm`, or `-journal` entry that is a symlink, a hard link, a directory, or a FIFO is refused with a non-zero status, and the link target stays unchanged. The SHM case requires a WAL database because other tables do not open that file.
+- [x] C-13 Recovery matches the documented contract. A hot journal is refused in read-only mode with an `--recover` hint and the database hash is unchanged. Accepting recovery rolls the database back and removes the journal. Declining and running recovery on a healthy database leave every byte in place. A read-only database file and an exclusively locked database both fail with a message and a non-zero status.
+- [x] C-14 Write confirmation cannot be bypassed. Esc cancels a pending cell write, a repeated `y` applies one change, a failed write on a read-only file leaves no journal or WAL behind, and an external change between the prompt and the confirmation refuses the write.
+- [x] C-15 Statement classification follows SQLite. `ATTACH`, `SAVEPOINT`, `BEGIN`, `VACUUM`, `pragma_journal_mode`, `pragma_table_list`, `sqlite_dbpage`, `readfile`, `writefile`, and `CREATE VIRTUAL TABLE` are refused in read-only and write mode. A query with an unbounded recursive term is interrupted by the progress handler. `REINDEX` asks for confirmation when an index can change and reports query results only when the statement cannot write.
+- [x] C-16 The self-test rejects unsafe homes. `--debug` fails with a world-writable `$HOME`, a missing `$HOME`, an unset `$HOME`, and a `.zsqt` entry that is a symlink. A symlink placed inside `.zsqt` is not followed, and a successful run leaves the directory empty.
+- [x] C-17 Cell identity is exact for unusual keys. A shadowed `rowid` column falls back to `_rowid_`, an `INTEGER PRIMARY KEY` beside a `rowid` column updates the selected row, a BLOB primary key updates the selected row, and a nullable primary key falls back to the rowid key so a NULL key cannot update several rows.
+- [x] C-18 The renderer accepts the whole terminal range. Sizes of 1x1, 5x20, 12x40, 100x240, and 200x400 exit with status 0 and no panic.
 
 ### Fixed findings
 
@@ -43,11 +53,12 @@ Review date: 2026-11-06. Runtime probing used a debug build of commit `4bc4b82` 
 
 - [x] A-01 Read-only access to a WAL database creates an empty WAL and the SHM sidecar. SQLite needs the sidecar for a read-only WAL open, and the files are now owner-only. The behavior is documented in `docs/limitations.md`.
 - [x] A-02 The main database file may be a hard link while sidecar files must have a single link. Backups rely on hard links, and a hard link grants no access that the containing directory does not already allow. The rule is documented in `docs/limitations.md`.
-- [x] A-03 A writable database in a directory controlled by another user leaves a rename window between the header check and the SQLite open. The header check is advisory because SQLite validates the file it opens. A swap can only replace the database with another SQLite database in the same directory, so the impact stays inside the user's stated choice of path. The trust assumption is documented in `docs/limitations.md`.
+- [x] A-03 A writable database in a directory controlled by another user leaves a rename window between the header check and the SQLite open. The header check is advisory because SQLite validates the file it opens. A swap can only replace the database with another SQLite database in the same directory, so the impact stays inside the user's stated choice of path. Sidecar files written in that directory can also change the readable view of a WAL database or enter it during a write open. The trust assumption is documented in `docs/limitations.md`.
 
 ## Not covered
 
 - Memory-safety fuzzing of the vendored SQLite library.
+- Memory-safety fuzzing of the Zig renderer and input parser beyond the matrices above.
 - Kernel and filesystem behavior on every Termux device.
 - Multi-user systems where another user already controls the database directory.
 - Denial of service through terminal or pseudo-terminal ownership.
